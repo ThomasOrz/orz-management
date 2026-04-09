@@ -13,7 +13,7 @@ export default async function BriefingPage() {
   const { data: briefing } = await supabase
     .from('briefings')
     .select('*')
-    .eq('date', today)
+    .eq('fecha', today)
     .eq('user_id', user.id)
     .maybeSingle()
 
