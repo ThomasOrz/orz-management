@@ -44,30 +44,55 @@ export default function BriefingClient({ initialBriefing, userId }: Props) {
     setError(null)
 
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) throw new Error('Sin sesión activa')
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError) throw new Error(`Error de sesión: ${sessionError.message}`)
+      if (!session) throw new Error('Sin sesión activa — vuelve a iniciar sesión')
 
-      const response = await fetch(
-        'https://ymosnytxyveedpsubdke.supabase.co/functions/v1/generate-briefing',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ user_id: userId }),
-        }
-      )
+      console.log('[briefing] Llamando Edge Function con user_id:', userId)
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}))
-        throw new Error(err.error ?? `Error ${response.status}`)
+      let response: Response
+      try {
+        response = await fetch(
+          'https://ymosnytxyveedpsubdke.supabase.co/functions/v1/generate-briefing',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ user_id: userId }),
+          }
+        )
+      } catch (networkErr) {
+        throw new Error(`Error de red al contactar la Edge Function: ${networkErr instanceof Error ? networkErr.message : String(networkErr)}`)
       }
 
-      const data = await response.json()
-      setBriefing(data.briefing ?? data)
+      console.log('[briefing] Respuesta status:', response.status, response.statusText)
+
+      const rawText = await response.text()
+      console.log('[briefing] Respuesta raw:', rawText)
+
+      let data: Record<string, unknown>
+      try {
+        data = JSON.parse(rawText)
+      } catch {
+        throw new Error(`La Edge Function devolvió una respuesta no válida (status ${response.status}): ${rawText.slice(0, 200)}`)
+      }
+
+      console.log('[briefing] Respuesta parseada:', data)
+
+      if (!response.ok) {
+        const msg = (data.error ?? data.message ?? `Error ${response.status}`) as string
+        throw new Error(String(msg))
+      }
+
+      const briefingData = (data.briefing ?? data) as typeof data
+      console.log('[briefing] Briefing a renderizar:', briefingData)
+      setBriefing(briefingData as Parameters<typeof setBriefing>[0])
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error desconocido')
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[briefing] Error generando briefing:', msg)
+      setError(msg)
     } finally {
       setLoading(false)
     }
