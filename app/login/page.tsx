@@ -87,12 +87,10 @@ export default function LoginPage() {
                 onChange={e => setEmail(e.target.value)}
                 required
                 placeholder="tu@correo.com"
-                className="w-full px-4 py-3 rounded-lg text-white text-sm outline-none focus:ring-2 transition-all"
+                className="w-full px-4 py-3 rounded-lg text-white text-sm outline-none transition-all"
                 style={{
                   backgroundColor: '#0a0a0a',
                   border: '1px solid #333',
-                  // @ts-expect-error custom CSS variable
-                  '--tw-ring-color': '#1A9BD7',
                 }}
               />
             </div>

@@ -16,18 +16,20 @@ export default async function RootLayout({
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
+  const isAuthPage = !user
+
   return (
     <html lang="es">
       <body className="antialiased" style={{ backgroundColor: '#0a0a0a', color: '#ffffff' }}>
-        {user ? (
+        {isAuthPage ? (
+          children
+        ) : (
           <div className="flex min-h-screen">
             <Sidebar />
             <main className="flex-1 ml-64 p-8">
               {children}
             </main>
           </div>
-        ) : (
-          children
         )}
       </body>
     </html>
