@@ -196,7 +196,7 @@ export default function EvaluacionClient({ userId, historial: initialHistorial }
           </div>
 
           {/* Acción mañana */}
-          {displayed.accion_manana && (
+          {!!displayed.accion_manana && (
             <div className="rounded-2xl p-6" style={{ backgroundColor: '#1A9BD710', border: '1px solid #1A9BD730' }}>
               <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#1A9BD7' }}>
                 Acción para mañana

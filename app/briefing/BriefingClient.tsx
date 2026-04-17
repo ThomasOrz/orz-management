@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/client'
 // Tipos reales devueltos por la Edge Function generate-briefing
 interface SesgoObj { direccion?: string; razon?: string }
 interface ZonasActivo { soporte?: string; resistencia?: string }
+interface EventoObj { hora?: string; evento?: string; impacto?: string }
+
 interface Briefing {
   id: string
   fecha?: string
@@ -13,8 +15,8 @@ interface Briefing {
   condicion: string
   sesgo_nas100: string | SesgoObj | null
   sesgo_xauusd: string | SesgoObj | null
-  eventos?: string[]
-  eventos_dia?: string[]
+  eventos?: (string | EventoObj)[]
+  eventos_dia?: (string | EventoObj)[]
   correlaciones?: Record<string, string> | string | null
   zonas_clave?: { nas100?: ZonasActivo; xauusd?: ZonasActivo } | null
   plan_accion?: { buscar?: string[]; evitar?: string[] } | string | null
@@ -221,13 +223,36 @@ export default function BriefingClient({ initialBriefing, userId }: Props) {
           {eventos.length > 0 && (
             <div className={card} style={cardStyle}>
               <h3 className={labelClass} style={labelStyle}>Eventos del Día</h3>
-              <ul className="space-y-2">
-                {eventos.map((e, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
-                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#1A9BD7' }} />
-                    {e}
-                  </li>
-                ))}
+              <ul className="space-y-3">
+                {eventos.map((e, i) => {
+                  if (typeof e === 'string') {
+                    return (
+                      <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
+                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#1A9BD7' }} />
+                        {e}
+                      </li>
+                    )
+                  }
+                  // Objeto {hora, evento, impacto}
+                  const impactoColor: Record<string, string> = {
+                    alto: '#f87171', medio: '#fbbf24', bajo: '#4ade80',
+                  }
+                  const ic = impactoColor[(e.impacto ?? '').toLowerCase()] ?? '#888'
+                  return (
+                    <li key={i} className="flex items-start gap-3 text-sm">
+                      {e.hora && (
+                        <span className="text-gray-500 font-mono text-xs w-12 flex-shrink-0 pt-0.5">{e.hora}</span>
+                      )}
+                      <span className="text-gray-300 flex-1">{e.evento ?? '—'}</span>
+                      {e.impacto && (
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: `${ic}20`, color: ic }}>
+                          {e.impacto}
+                        </span>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           )}
