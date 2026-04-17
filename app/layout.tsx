@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import Sidebar from '@/components/Sidebar'
 import { cookies } from 'next/headers'
+import { GeistSans } from 'geist/font/sans'
 
 export const metadata: Metadata = {
   title: 'ORZ Management',
@@ -21,12 +22,12 @@ export default function RootLayout({
   )
 
   return (
-    <html lang="es">
-      <body className="antialiased" style={{ backgroundColor: '#0a0a0a', color: '#ffffff' }}>
+    <html lang="es" className={GeistSans.className}>
+      <body>
         {hasSession ? (
-          <div className="flex min-h-screen">
+          <div className="app-shell">
             <Sidebar />
-            <main className="flex-1 ml-64 p-8">
+            <main className="app-main">
               {children}
             </main>
           </div>
