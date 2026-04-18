@@ -10,7 +10,7 @@ export default async function SesionPage() {
   const today = new Date().toISOString().split('T')[0]
 
   const { data: trades } = await supabase
-    .from('trade_executions')
+    .from('trades')
     .select('*')
     .eq('user_id', user.id)
     .gte('created_at', `${today}T00:00:00`)
