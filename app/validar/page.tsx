@@ -2,6 +2,12 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import TradingViewChart from '@/components/TradingViewChart'
+
+const TV_SYMBOL: Record<string, string> = {
+  NAS100: 'OANDA:NAS100USD',
+  XAUUSD: 'OANDA:XAUUSD',
+}
 
 type Clasificacion = 'A+' | 'A' | 'B' | 'C' | string
 
@@ -82,6 +88,22 @@ export default function ValidarPage() {
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-white">Validar Setup</h1>
         <p className="text-gray-500 text-sm mt-1">Analiza si tu setup cumple los criterios de calidad</p>
+      </div>
+
+      {/* Gráfico en vivo — se actualiza con el activo seleccionado */}
+      <div
+        key={activo}
+        style={{ backgroundColor: '#111111', border: '1px solid rgba(255,255,255,0.031)', borderRadius: 16, overflow: 'hidden', marginBottom: 16 }}
+      >
+        <div style={{ padding: '12px 16px 0', fontSize: 11, fontWeight: 600, color: '#1A9BD7', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          {activo} — 15m en vivo
+        </div>
+        <TradingViewChart
+          key={activo}
+          symbol={TV_SYMBOL[activo] ?? 'OANDA:NAS100USD'}
+          interval="15"
+          height={520}
+        />
       </div>
 
       {/* Formulario */}

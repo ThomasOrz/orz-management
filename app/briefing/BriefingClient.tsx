@@ -2,6 +2,9 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import TradingViewChart from '@/components/TradingViewChart'
+import TradingViewTechnicalAnalysis from '@/components/TradingViewTechnicalAnalysis'
+import TradingViewEconomicCalendar from '@/components/TradingViewEconomicCalendar'
 
 // Tipos reales devueltos por la Edge Function generate-briefing
 interface SesgoObj { direccion?: string; razon?: string }
@@ -323,6 +326,46 @@ export default function BriefingClient({ initialBriefing, userId }: Props) {
               </div>
             </div>
           )}
+
+          {/* ── Gráficos en vivo ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ backgroundColor: '#111111', border: '1px solid rgba(255,255,255,0.031)', borderRadius: 16, overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px 0', fontSize: 11, fontWeight: 600, color: '#1A9BD7', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                NAS100 — 15m
+              </div>
+              <TradingViewChart symbol="OANDA:NAS100USD" interval="15" height={500} />
+            </div>
+            <div style={{ backgroundColor: '#111111', border: '1px solid rgba(255,255,255,0.031)', borderRadius: 16, overflow: 'hidden' }}>
+              <div style={{ padding: '12px 16px 0', fontSize: 11, fontWeight: 600, color: '#1A9BD7', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                XAUUSD — 15m
+              </div>
+              <TradingViewChart symbol="OANDA:XAUUSD" interval="15" height={500} />
+            </div>
+          </div>
+
+          {/* ── Análisis Técnico ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ backgroundColor: '#111111', border: '1px solid rgba(255,255,255,0.031)', borderRadius: 16, overflow: 'hidden', padding: '12px 16px 0' }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: '#1A9BD7', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                Análisis Técnico — NAS100
+              </p>
+              <TradingViewTechnicalAnalysis symbol="OANDA:NAS100USD" interval="15m" height={425} />
+            </div>
+            <div style={{ backgroundColor: '#111111', border: '1px solid rgba(255,255,255,0.031)', borderRadius: 16, overflow: 'hidden', padding: '12px 16px 0' }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: '#1A9BD7', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                Análisis Técnico — XAUUSD
+              </p>
+              <TradingViewTechnicalAnalysis symbol="OANDA:XAUUSD" interval="15m" height={425} />
+            </div>
+          </div>
+
+          {/* ── Calendario Económico ── */}
+          <div style={{ backgroundColor: '#111111', border: '1px solid rgba(255,255,255,0.031)', borderRadius: 16, overflow: 'hidden', padding: '12px 16px 0' }}>
+            <p style={{ fontSize: 11, fontWeight: 600, color: '#1A9BD7', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+              Calendario Económico — US · EU · JP
+            </p>
+            <TradingViewEconomicCalendar height={400} />
+          </div>
 
           {/* Plan de acción */}
           {plan && (

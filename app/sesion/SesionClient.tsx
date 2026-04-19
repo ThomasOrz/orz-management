@@ -46,6 +46,12 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import TradingViewMiniChart from '@/components/TradingViewMiniChart'
+
+const TV_SYMBOL: Record<string, string> = {
+  NAS100: 'OANDA:NAS100USD',
+  XAUUSD: 'OANDA:XAUUSD',
+}
 
 // ── Tipos ─────────────────────────────────────────────────────────────────
 
@@ -471,6 +477,28 @@ export default function SesionClient({ userId, initialTrades }: Props) {
               onChange={v => { setSesgo(v); setSesgoManual(true) }}
             />
           </div>
+        </div>
+
+        {/* ── Mini Chart del activo seleccionado ── */}
+        <div
+          key={activo}
+          style={{
+            backgroundColor: '#111111',
+            border: 'rgba(255,255,255,0.031) 1px solid',
+            borderRadius: 16,
+            overflow: 'hidden',
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ padding: '10px 16px 0', fontSize: 11, fontWeight: 600, color: '#1A9BD7', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            {activo} — Sesión actual
+          </div>
+          <TradingViewMiniChart
+            key={activo}
+            symbol={TV_SYMBOL[activo] ?? 'OANDA:NAS100USD'}
+            height={220}
+            dateRange="1D"
+          />
         </div>
 
         {/* ── SECCIÓN 2: Setup ── */}
