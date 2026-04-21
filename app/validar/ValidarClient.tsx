@@ -399,7 +399,7 @@ Notas: ${notas || 'Ninguna'}
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ activo, direccion: sesgo === 'Alcista' ? 'Long' : 'Short', descripcion }),
+          body: JSON.stringify({ activo, direccion: sesgo === 'Alcista' ? 'long' : 'short', descripcion }),
         }
       )
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? `Error ${res.status}`) }

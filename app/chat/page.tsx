@@ -37,6 +37,15 @@ export default function ChatPage() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error('Sin sesión activa')
 
+      // Enviar últimos 20 mensajes como historial (excluye el saludo inicial automático)
+      // El EF espera roles 'user' | 'assistant' (no 'usuario' | 'tefa')
+      const historial = mensajes
+        .slice(-20)
+        .map((m) => ({
+          role: m.rol === 'usuario' ? 'user' : 'assistant',
+          content: m.texto,
+        }))
+
       const res = await fetch(
         'https://ymosnytxyveedpsubdke.supabase.co/functions/v1/chat-mentor',
         {
@@ -45,7 +54,7 @@ export default function ChatPage() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ mensaje: texto }),
+          body: JSON.stringify({ mensaje: texto, historial }),
         }
       )
 
