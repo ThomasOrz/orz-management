@@ -671,3 +671,44 @@ US10Y   → TVC:US10Y         (puede retornar null en tier gratuito)
 - **RR mínimo:** 1:2 (arriesgar 1 para ganar 2)
 - **EMAs:** 8, 20, 40, 200 — deben estar alineadas con el sesgo para confluencia máxima
 - **Clasificación de setup:** A+ (óptimo) → A (sólido) → B (aceptable) → C (no operar)
+
+---
+
+## 11. Fase 4 — Dashboard Principal (COMPLETADA)
+
+### Objetivo
+Reemplazar el redirect `/` → `/briefing` por un **dashboard analítico** que sea la primera pantalla al abrir la app.
+
+### Archivos nuevos
+- **`app/page.tsx`** (Server Component) — auth + fetch paralelo de:
+  - `trader_stats` (vista de Fase 3) — 1 fila con métricas agregadas
+  - `trades` (últimos 200) — para analytics en cliente + equity curve
+  - `briefings` de hoy — sesgo del día
+  - `discipline_logs` de hoy — estado de disciplina diaria
+- **`app/DashboardClient.tsx`** (Client Component) — UI con 4 filas:
+  - **FILA 1 · Estado hoy**: semáforo "¿Puedo operar?" (verde/amarillo/rojo según DD diario + emoción reciente), riesgo permitido (1R / 0.5R / Pausado), sesgo del día desde briefing
+  - **FILA 2 · Rendimiento**: 4 big numbers — WR últimos 30d con delta vs. período anterior, Profit Factor, R acumulado del mes, racha actual con mejor/peor histórico
+  - **FILA 3 · Inteligencia**: Top 3 alertas de `detectDangerousPatterns()`, mejor setup (trigger × sesión con mayor WR), punto débil (peor `avg_r` entre emoción/trigger/sesión). Bloqueado con mensaje educativo si hay <10 trades cerrados
+  - **FILA 4 · Gráficas** (Recharts): equity curve full-width + WR por día de la semana + distribución de resultados por trigger (barras apiladas W/BE/L)
+
+### Dependencias nuevas
+- `recharts@^3.8.1` — única librería instalada (solo para FILA 4)
+
+### Modificaciones
+- **`components/Sidebar.tsx`**: agregado link "Dashboard" apuntando a `/` como primera entrada
+- El path `/briefing` sigue accesible desde el sidebar (no es más la home)
+
+### Reglas de negocio del semáforo
+- **Rojo**: `rHoy ≤ -3R` → STOP diario
+- **Amarillo**: `rHoy ≤ -2R` OR `lossesHoy ≥ 2` OR última emoción ∈ {Revanchista, Frustrado, Eufórico}
+- **Verde**: cualquier otro caso
+
+### Riesgo permitido
+- `Pausado` si rojo
+- `0.5R reducido` si amarillo por racha/DD
+- `1R estándar` si verde
+
+### Estados vacíos
+- 0 trades: card central con CTA a `/sesion` o `/validar`
+- <10 trades cerrados: FILA 3 bloqueada con mensaje "Registra 10 trades para desbloquear insights de IA"
+- Segmentos con muestra <3 se excluyen del ranking "mejor setup / punto débil"
