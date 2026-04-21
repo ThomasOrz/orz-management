@@ -31,10 +31,14 @@ interface Props {
 }
 
 const condicionColors: Record<string, { bg: string; text: string; label: string }> = {
+  // Valores reales devueltos por la Edge Function
+  risk_on:   { bg: '#16a34a20', text: '#4ade80', label: 'Risk On' },
+  risk_off:  { bg: '#dc262620', text: '#f87171', label: 'Risk Off' },
+  mixto:     { bg: '#7c3aed20', text: '#a78bfa', label: 'Mixto' },
+  // Aliases legacy por si acaso
   favorable: { bg: '#16a34a20', text: '#4ade80', label: 'Favorable' },
   neutral:   { bg: '#ca8a0420', text: '#fbbf24', label: 'Neutral' },
   adverso:   { bg: '#dc262620', text: '#f87171', label: 'Adverso' },
-  mixto:     { bg: '#7c3aed20', text: '#a78bfa', label: 'Mixto' },
 }
 
 /** Convierte sesgo (string o {direccion, razon}) a texto legible */

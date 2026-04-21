@@ -99,13 +99,14 @@ export default function EvaluacionClient({ userId, historial: initialHistorial }
     const trades = toNum(d.total_trades) ?? '—'
     const wr = toNum(d.win_rate)
     const rr = toNum(d.rr_promedio)
-    const pnl = toNum(d.pnl)
+    // EF guarda como 'pnl' (en R), campo legacy 'pnl_neto' también soportado
+    const pnl = toNum(d.pnl) ?? toNum(d.pnl_neto)
 
     const metricas = [
       { label: 'Trades', value: trades },
-      { label: 'Win Rate', value: wr != null ? `${wr}%` : '—' },
+      { label: 'Win Rate', value: wr != null ? `${wr.toFixed(1)}%` : '—' },
       { label: 'R:R Prom.', value: rr != null ? rr.toFixed(2) : '—' },
-      { label: 'P&L', value: pnl != null ? (pnl >= 0 ? `+${pnl}` : `${pnl}`) : '—' },
+      { label: 'P&L (R)', value: pnl != null ? (pnl >= 0 ? `+${pnl}R` : `${pnl}R`) : '—' },
     ]
 
     return (
@@ -170,6 +171,16 @@ export default function EvaluacionClient({ userId, historial: initialHistorial }
       {displayed && (
         <div className="space-y-5 mb-10">
           {renderMetricas(displayed)}
+
+          {/* Nota general */}
+          {!!displayed.nota_general && (
+            <div className="rounded-2xl p-6" style={{ backgroundColor: '#111111', border: '1px solid #222222' }}>
+              <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#1A9BD7' }}>
+                Evaluación general
+              </h3>
+              <p className="text-gray-300 text-sm leading-relaxed">{toStr(displayed.nota_general)}</p>
+            </div>
+          )}
 
           {/* Errores */}
           {toStrArr(displayed.errores).length > 0 && (
