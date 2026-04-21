@@ -402,10 +402,44 @@ Notas: ${notas || 'Ninguna'}
           body: JSON.stringify({ activo, direccion: sesgo === 'Alcista' ? 'long' : 'short', descripcion }),
         }
       )
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? `Error ${res.status}`) }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(`${d.error ?? `Error ${res.status}`}${d.detail ? ` — ${d.detail}` : ''}`)
+      }
       const data = await res.json()
-      const v = data.validacion ?? data
-      setAiVeredicto(v.veredicto ?? JSON.stringify(v))
+
+      // El EF validate-setup devuelve: { setup, evaluacion: { criterios, puntos_ciegos, clasificacion, veredicto, razon } }
+      // veredicto = "operar" | "operar_reducido" | "no_operar" (código)
+      // razon = explicación legible
+      // criterios = { estructura, liquidez, desplazamiento, zona, macro, horario, risk: { cumple, detalle } }
+      const evalObj = data.evaluacion ?? data.validacion ?? data
+
+      // Construir texto legible
+      const partes: string[] = []
+      if (evalObj.razon) partes.push(evalObj.razon)
+      if (evalObj.clasificacion) partes.push(`\n\nClasificación IA: ${evalObj.clasificacion}`)
+      if (evalObj.veredicto) {
+        const v = String(evalObj.veredicto).toLowerCase()
+        const veredictoLabel = v === 'operar' ? '✓ Operar'
+                            : v === 'operar_reducido' ? '⚠ Operar con tamaño reducido'
+                            : v === 'no_operar' ? '✗ No operar'
+                            : evalObj.veredicto
+        partes.push(`Veredicto: ${veredictoLabel}`)
+      }
+      if (Array.isArray(evalObj.puntos_ciegos) && evalObj.puntos_ciegos.length > 0) {
+        partes.push(`\nPuntos ciegos:\n${evalObj.puntos_ciegos.map((p: string) => `• ${p}`).join('\n')}`)
+      }
+      if (evalObj.criterios && typeof evalObj.criterios === 'object') {
+        const noCumplen = Object.entries(evalObj.criterios as Record<string, { cumple: boolean; detalle: string }>)
+          .filter(([, c]) => c && c.cumple === false)
+          .map(([k, c]) => `• ${k}: ${c.detalle}`)
+        if (noCumplen.length > 0) {
+          partes.push(`\nCriterios no cumplidos:\n${noCumplen.join('\n')}`)
+        }
+      }
+
+      const texto = partes.join('\n').trim()
+      setAiVeredicto(texto || 'Sin análisis disponible — la EF respondió sin contenido legible.')
     } catch (err) {
       setAiError(err instanceof Error ? err.message : 'Error desconocido')
     } finally {

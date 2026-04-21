@@ -60,7 +60,9 @@ export default function ChatPage() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        throw new Error(err.error ?? `Error ${res.status}`)
+        const stage  = err.stage  ? ` [${err.stage}]`  : ''
+        const detail = err.detail ? ` — ${err.detail}` : ''
+        throw new Error(`${err.error ?? `Error ${res.status}`}${stage}${detail}`)
       }
 
       const data = await res.json()
