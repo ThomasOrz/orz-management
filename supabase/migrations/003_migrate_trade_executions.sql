@@ -55,7 +55,7 @@ BEGIN
   -- Migrar evitando duplicados (por user_id + created_at exacto)
   INSERT INTO trades (
     user_id, activo, sesion, fecha_entrada,
-    zona_diario, zona_h4, sesgo, tipo_vela, trigger, t1_fallido_previo,
+    zona_diario, zona_h4, sesgo, tipo_vela, "trigger", t1_fallido_previo,
     precio_entrada, stop_loss, take_profit,
     resultado, r_obtenido,
     siguio_reglas, regla_rota, emocion, notas,
@@ -78,7 +78,7 @@ BEGIN
       WHEN 'short' THEN 'V85 bajista'
       ELSE 'V85 alcista'
     END AS tipo_vela,
-    'T2 (V85)'::TEXT AS trigger,                   -- DEFAULT — revisar manualmente
+    'T2 (V85)'::TEXT AS "trigger",                 -- DEFAULT — revisar manualmente
     FALSE AS t1_fallido_previo,
     te.precio_entrada,
     te.stop_loss,

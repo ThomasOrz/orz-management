@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS trades (
 
   -- Setup
   tipo_vela           TEXT        NOT NULL CHECK (tipo_vela IN ('V85 alcista', 'V85 bajista')),
-  trigger             TEXT        NOT NULL CHECK (trigger IN ('T1 (V85+V50)', 'T2 (V85)', 'T3 (V85+EMAs)', 'Acumulación')),
+  "trigger"           TEXT        NOT NULL CHECK ("trigger" IN ('T1 (V85+V50)', 'T2 (V85)', 'T3 (V85+EMAs)', 'Acumulación')),
   t1_fallido_previo   BOOLEAN     NOT NULL DEFAULT FALSE,
 
   -- Gestión
