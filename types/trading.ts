@@ -60,6 +60,33 @@ export interface Trade {
   notas: string | null
   created_at: string                     // ISO timestamp
   updated_at: string
+
+  // ── Iteración 1: contexto de mercado ─────────────────────────────
+  precio_activo_entrada: number | null
+  vix_entrada: number | null
+  dxy_entrada: number | null
+  spread_pips: number | null
+  hora_exacta_trigger: string | null     // ISO timestamp
+
+  // ── Iteración 1: contexto operativo ──────────────────────────────
+  capital_cuenta: number | null
+  riesgo_pct: number | null
+  riesgo_r: number | null                // 0.5 | 1 | 1.5 | 2 (default 1)
+
+  // ── Iteración 1: MAE/MFE (post-cierre) ───────────────────────────
+  mae_r: number | null
+  mfe_r: number | null
+  tiempo_hasta_cierre_min: number | null
+
+  // ── Iteración 1: justificación estructurada ──────────────────────
+  razon_entrada: string | null
+  plan_invalidacion: string | null
+  leccion_aprendida: string | null
+
+  // ── Iteración 1: screenshot + metadata cierre ────────────────────
+  screenshot_url: string | null
+  trade_cerrado: boolean
+  fecha_cierre: string | null
 }
 
 // Trade cerrado: garantiza resultado y r_obtenido no-null
