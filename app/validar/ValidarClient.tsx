@@ -1,8 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Sparkles, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import TradingViewChart from '@/components/TradingViewChart'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Button } from '@/components/ui/Button'
 
 // ── Tipos ─────────────────────────────────────────────────────────────────
 
@@ -467,13 +470,10 @@ Notas: ${notas || 'Ninguna'}
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: S.t1, margin: 0 }}>Validar Setup</h1>
-        <p style={{ fontSize: 13, color: S.t3, marginTop: 4 }}>
-          Verifica si tu setup cumple los criterios de calidad ORZ antes de operar
-        </p>
-      </div>
+      <PageHeader
+        title="Validar Setup"
+        subtitle="Verifica si tu setup cumple los criterios de calidad ORZ antes de operar"
+      />
 
       {/* Gráfico dinámico */}
       <div key={activo} style={{ ...cardStyle, padding: 0, overflow: 'hidden' }}>
@@ -663,23 +663,26 @@ Notas: ${notas || 'Ninguna'}
       </div>
 
       {/* ── Botones de validación ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, marginBottom: 32 }}>
-        <button type="button" onClick={handleValidar}
-          style={{
-            padding: '13px 0', borderRadius: 12, backgroundColor: S.accent,
-            color: '#fff', fontSize: 14, fontWeight: 600, border: 'none', cursor: 'pointer',
-          }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 'var(--space-3)', marginBottom: 'var(--space-8)' }}>
+        <Button
+          type="button"
+          variant="primary"
+          size="md"
+          onClick={handleValidar}
+          icon={<CheckCircle2 size={14} />}
+        >
           Validar Setup (reglas ORZ)
-        </button>
-        <button type="button" onClick={handleValidarConIA} disabled={loadingAI}
-          style={{
-            padding: '13px 20px', borderRadius: 12, border: `1px solid ${S.muted}`,
-            backgroundColor: 'transparent', color: loadingAI ? S.t3 : S.t2,
-            fontSize: 13, fontWeight: 500, cursor: loadingAI ? 'not-allowed' : 'pointer',
-            whiteSpace: 'nowrap',
-          }}>
-          {loadingAI ? 'Consultando IA...' : '+ Análisis IA'}
-        </button>
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="md"
+          loading={loadingAI}
+          onClick={handleValidarConIA}
+          icon={<Sparkles size={14} />}
+        >
+          Análisis IA
+        </Button>
       </div>
 
       {/* ── Resultado de validación ── */}

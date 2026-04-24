@@ -9,13 +9,27 @@ export default async function SesionPage() {
 
   const today = new Date().toISOString().split('T')[0]
 
-  const { data: trades } = await supabase
-    .from('trades')
-    .select('*')
-    .eq('user_id', user.id)
-    .gte('created_at', `${today}T00:00:00`)
-    .lte('created_at', `${today}T23:59:59`)
-    .order('created_at', { ascending: false })
+  const [{ data: trades }, { data: historic }] = await Promise.all([
+    supabase
+      .from('trades')
+      .select('*')
+      .eq('user_id', user.id)
+      .gte('created_at', `${today}T00:00:00`)
+      .lte('created_at', `${today}T23:59:59`)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('trades')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(500),
+  ])
 
-  return <SesionClient userId={user.id} initialTrades={trades ?? []} />
+  return (
+    <SesionClient
+      userId={user.id}
+      initialTrades={trades ?? []}
+      historicTrades={historic ?? []}
+    />
+  )
 }

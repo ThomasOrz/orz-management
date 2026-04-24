@@ -1,7 +1,13 @@
 'use client'
 
 import { useState } from 'react'
+import { Zap, FileText, AlertTriangle, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Card } from '@/components/ui/Card'
+import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
+import { EmptyState } from '@/components/ui/EmptyState'
 import TradingViewChart from '@/components/TradingViewChart'
 import TradingViewTechnicalAnalysis from '@/components/TradingViewTechnicalAnalysis'
 import TradingViewEconomicCalendar from '@/components/TradingViewEconomicCalendar'
@@ -30,18 +36,15 @@ interface Props {
   userId: string
 }
 
-const condicionColors: Record<string, { bg: string; text: string; label: string }> = {
-  // Valores reales devueltos por la Edge Function
-  risk_on:   { bg: '#16a34a20', text: '#4ade80', label: 'Risk On' },
-  risk_off:  { bg: '#dc262620', text: '#f87171', label: 'Risk Off' },
-  mixto:     { bg: '#7c3aed20', text: '#a78bfa', label: 'Mixto' },
-  // Aliases legacy por si acaso
-  favorable: { bg: '#16a34a20', text: '#4ade80', label: 'Favorable' },
-  neutral:   { bg: '#ca8a0420', text: '#fbbf24', label: 'Neutral' },
-  adverso:   { bg: '#dc262620', text: '#f87171', label: 'Adverso' },
+const condicionMap: Record<string, { variant: 'profit' | 'loss' | 'info' | 'neutral' | 'accent'; label: string }> = {
+  risk_on:   { variant: 'profit', label: 'Risk On' },
+  risk_off:  { variant: 'loss',   label: 'Risk Off' },
+  mixto:     { variant: 'accent', label: 'Mixto' },
+  favorable: { variant: 'profit', label: 'Favorable' },
+  neutral:   { variant: 'neutral', label: 'Neutral' },
+  adverso:   { variant: 'loss',   label: 'Adverso' },
 }
 
-/** Convierte sesgo (string o {direccion, razon}) a texto legible */
 function sesgoTexto(sesgo: string | SesgoObj | null | undefined): string {
   if (!sesgo) return '—'
   if (typeof sesgo === 'string') return sesgo
@@ -49,6 +52,23 @@ function sesgoTexto(sesgo: string | SesgoObj | null | undefined): string {
   if (sesgo.direccion) partes.push(sesgo.direccion)
   if (sesgo.razon) partes.push(sesgo.razon)
   return partes.join(' — ') || '—'
+}
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 'var(--text-xs)',
+  fontWeight: 600,
+  color: 'var(--accent-primary)',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  margin: 0,
+  marginBottom: 'var(--space-3)',
+}
+
+const bodyStyle: React.CSSProperties = {
+  color: 'var(--text-secondary)',
+  fontSize: 'var(--text-sm)',
+  lineHeight: 1.55,
+  margin: 0,
 }
 
 export default function BriefingClient({ initialBriefing, userId }: Props) {
@@ -64,329 +84,255 @@ export default function BriefingClient({ initialBriefing, userId }: Props) {
   async function generarBriefing() {
     setLoading(true)
     setError(null)
-
     try {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession()
       if (sessionError) throw new Error(`Error de sesión: ${sessionError.message}`)
       if (!session) throw new Error('Sin sesión activa — vuelve a iniciar sesión')
 
-      console.log('[briefing] Llamando Edge Function con user_id:', userId)
+      const response = await fetch(
+        'https://ymosnytxyveedpsubdke.supabase.co/functions/v1/generate-briefing',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ user_id: userId }),
+        }
+      )
 
-      let response: Response
-      try {
-        response = await fetch(
-          'https://ymosnytxyveedpsubdke.supabase.co/functions/v1/generate-briefing',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${session.access_token}`,
-            },
-            body: JSON.stringify({ user_id: userId }),
-          }
-        )
-      } catch (networkErr) {
-        throw new Error(`Error de red: ${networkErr instanceof Error ? networkErr.message : String(networkErr)}`)
-      }
-
-      console.log('[briefing] Status:', response.status)
       const rawText = await response.text()
-      console.log('[briefing] Raw:', rawText.slice(0, 500))
-
       let data: Record<string, unknown>
       try {
         data = JSON.parse(rawText)
       } catch {
         throw new Error(`Respuesta inválida (${response.status}): ${rawText.slice(0, 200)}`)
       }
-
-      console.log('[briefing] Parsed:', data)
-
       if (!response.ok) {
         throw new Error(String(data.error ?? data.message ?? `Error ${response.status}`))
       }
-
       const raw = (data.briefing ?? data) as Briefing
-      console.log('[briefing] Briefing:', raw)
       setBriefing(raw)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error('[briefing] Error:', msg)
-      setError(msg)
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
   }
 
   const condicion = briefing?.condicion
-    ? (condicionColors[briefing.condicion.toLowerCase()] ?? condicionColors.neutral)
+    ? (condicionMap[briefing.condicion.toLowerCase()] ?? condicionMap.neutral)
     : null
 
-  // Eventos: la EF usa "eventos", Supabase puede tener "eventos_dia"
   const eventos = briefing?.eventos ?? briefing?.eventos_dia ?? []
-
-  // Correlaciones: puede ser objeto {dxy, vix, us10y} o string
   const correlaciones = briefing?.correlaciones
   const correlacionesEntradas = correlaciones && typeof correlaciones === 'object'
     ? Object.entries(correlaciones as Record<string, string>)
     : null
   const correlacionesTexto = typeof correlaciones === 'string' ? correlaciones : null
-
-  // Zonas clave: objeto {nas100: {soporte, resistencia}, xauusd: {...}}
   const zonas = briefing?.zonas_clave
-
-  // Plan de acción: puede ser objeto {buscar, evitar} o string
   const plan = briefing?.plan_accion
 
-  const card = "rounded-2xl p-6"
-  const cardStyle = { backgroundColor: '#111111', border: '1px solid #222222' }
-  const labelStyle = { color: '#1A9BD7' }
-  const labelClass = "text-xs font-semibold uppercase tracking-wider mb-3"
-
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Briefing Diario</h1>
-          <p className="text-gray-500 text-sm mt-1 capitalize">{today}</p>
-        </div>
-        {!briefing && (
-          <button
-            onClick={generarBriefing}
-            disabled={loading}
-            className="px-5 py-2.5 rounded-lg text-white font-semibold text-sm disabled:opacity-60 flex items-center gap-2"
-            style={{ backgroundColor: '#1A9BD7' }}
-          >
-            {loading ? (
-              <>
-                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                Generando...
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                Generar Briefing
-              </>
-            )}
-          </button>
-        )}
-      </div>
+    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <PageHeader
+        title="Briefing Diario"
+        subtitle={today}
+        action={
+          briefing ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={loading}
+              icon={<RefreshCw size={14} />}
+              onClick={generarBriefing}
+            >
+              Regenerar
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              size="md"
+              loading={loading}
+              icon={<Zap size={14} />}
+              onClick={generarBriefing}
+            >
+              Generar Briefing
+            </Button>
+          )
+        }
+      />
 
       {error && (
-        <div className="mb-6 px-4 py-3 rounded-lg text-red-400 text-sm" style={{ backgroundColor: '#dc262620' }}>
-          {error}
-        </div>
+        <Card padding="sm" style={{
+          marginBottom: 'var(--space-5)',
+          background: 'var(--loss-bg)',
+          borderColor: 'var(--loss)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--loss)', fontSize: 'var(--text-sm)' }}>
+            <AlertTriangle size={14} />
+            {error}
+          </div>
+        </Card>
       )}
 
-      {/* Sin briefing */}
       {!briefing && !loading && (
-        <div className={card} style={{ ...cardStyle, padding: '3rem', textAlign: 'center' }}>
-          <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ backgroundColor: '#1A9BD720' }}>
-            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="#1A9BD7" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-          </div>
-          <p className="text-white font-semibold mb-2">No hay briefing para hoy</p>
-          <p className="text-gray-500 text-sm">Genera el briefing del día para ver el análisis de mercado.</p>
-        </div>
+        <EmptyState
+          icon={<FileText size={28} />}
+          title="No hay briefing para hoy"
+          description="Genera el briefing del día para ver el análisis de mercado."
+        />
       )}
 
-      {/* Briefing */}
       {briefing && (
-        <div className="space-y-5">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
           {/* Narrativa + condición */}
-          <div className={card} style={cardStyle}>
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <h2 className="text-white font-semibold text-lg">Narrativa del Mercado</h2>
-              {condicion && (
-                <span className="px-3 py-1 rounded-full text-xs font-semibold flex-shrink-0"
-                  style={{ backgroundColor: condicion.bg, color: condicion.text }}>
-                  {condicion.label}
-                </span>
-              )}
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-4)', marginBottom: 'var(--space-3)' }}>
+              <h2 style={{ color: 'var(--text-primary)', fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>Narrativa del Mercado</h2>
+              {condicion && <Badge variant={condicion.variant}>{condicion.label}</Badge>}
             </div>
-            <p className="text-gray-300 text-sm leading-relaxed">{briefing.narrativa}</p>
-          </div>
+            <p style={bodyStyle}>{briefing.narrativa}</p>
+          </Card>
 
           {/* Sesgos */}
-          <div className="grid grid-cols-2 gap-5">
-            <div className={card} style={cardStyle}>
-              <h3 className={labelClass} style={labelStyle}>Sesgo NAS100</h3>
-              <p className="text-gray-300 text-sm leading-relaxed">{sesgoTexto(briefing.sesgo_nas100)}</p>
-            </div>
-            <div className={card} style={cardStyle}>
-              <h3 className={labelClass} style={labelStyle}>Sesgo XAUUSD</h3>
-              <p className="text-gray-300 text-sm leading-relaxed">{sesgoTexto(briefing.sesgo_xauusd)}</p>
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--space-5)' }}>
+            <Card>
+              <h3 style={labelStyle}>Sesgo NAS100</h3>
+              <p style={bodyStyle}>{sesgoTexto(briefing.sesgo_nas100)}</p>
+            </Card>
+            <Card>
+              <h3 style={labelStyle}>Sesgo XAUUSD</h3>
+              <p style={bodyStyle}>{sesgoTexto(briefing.sesgo_xauusd)}</p>
+            </Card>
           </div>
 
           {/* Eventos */}
           {eventos.length > 0 && (
-            <div className={card} style={cardStyle}>
-              <h3 className={labelClass} style={labelStyle}>Eventos del Día</h3>
-              <ul className="space-y-3">
+            <Card>
+              <h3 style={labelStyle}>Eventos del Día</h3>
+              <ul style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', listStyle: 'none', padding: 0, margin: 0 }}>
                 {eventos.map((e, i) => {
                   if (typeof e === 'string') {
                     return (
-                      <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
-                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: '#1A9BD7' }} />
+                      <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                        <span style={{ marginTop: 6, width: 6, height: 6, borderRadius: '50%', background: 'var(--accent-primary)', flexShrink: 0 }} />
                         {e}
                       </li>
                     )
                   }
-                  // Objeto {hora, evento, impacto}
-                  const impactoColor: Record<string, string> = {
-                    alto: '#f87171', medio: '#fbbf24', bajo: '#4ade80',
+                  const impactoVariant: Record<string, 'loss' | 'neutral' | 'profit'> = {
+                    alto: 'loss', medio: 'neutral', bajo: 'profit',
                   }
-                  const ic = impactoColor[(e.impacto ?? '').toLowerCase()] ?? '#888'
+                  const v = impactoVariant[(e.impacto ?? '').toLowerCase()] ?? 'neutral'
                   return (
-                    <li key={i} className="flex items-start gap-3 text-sm">
+                    <li key={i} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', fontSize: 'var(--text-sm)' }}>
                       {e.hora && (
-                        <span className="text-gray-500 font-mono text-xs w-12 flex-shrink-0 pt-0.5">{e.hora}</span>
+                        <span style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', width: 56, flexShrink: 0 }}>{e.hora}</span>
                       )}
-                      <span className="text-gray-300 flex-1">{e.evento ?? '—'}</span>
-                      {e.impacto && (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: `${ic}20`, color: ic }}>
-                          {e.impacto}
-                        </span>
-                      )}
+                      <span style={{ color: 'var(--text-secondary)', flex: 1 }}>{e.evento ?? '—'}</span>
+                      {e.impacto && <Badge variant={v} size="sm">{e.impacto}</Badge>}
                     </li>
                   )
                 })}
               </ul>
-            </div>
+            </Card>
           )}
 
           {/* Correlaciones */}
           {(correlacionesEntradas || correlacionesTexto) && (
-            <div className={card} style={cardStyle}>
-              <h3 className={labelClass} style={labelStyle}>Correlaciones</h3>
-              {correlacionesTexto && (
-                <p className="text-gray-300 text-sm leading-relaxed">{correlacionesTexto}</p>
-              )}
+            <Card>
+              <h3 style={labelStyle}>Correlaciones</h3>
+              {correlacionesTexto && <p style={bodyStyle}>{correlacionesTexto}</p>}
               {correlacionesEntradas && (
-                <ul className="space-y-2">
+                <ul style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', listStyle: 'none', padding: 0, margin: 0 }}>
                   {correlacionesEntradas.map(([key, val]) => (
-                    <li key={key} className="flex items-start gap-3 text-sm">
-                      <span className="text-gray-500 uppercase font-mono w-12 flex-shrink-0">{key}</span>
-                      <span className="text-gray-300">{val}</span>
+                    <li key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 'var(--text-sm)' }}>
+                      <span style={{ color: 'var(--text-tertiary)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', width: 56, flexShrink: 0 }}>{key}</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{val}</span>
                     </li>
                   ))}
                 </ul>
               )}
-            </div>
+            </Card>
           )}
 
           {/* Zonas clave */}
           {zonas && (
-            <div className={card} style={cardStyle}>
-              <h3 className={labelClass} style={labelStyle}>Zonas Clave</h3>
-              <div className="grid grid-cols-2 gap-6">
-                {zonas.nas100 && (
-                  <div>
-                    <p className="text-xs text-gray-500 mb-2 font-semibold">NAS100</p>
-                    <div className="space-y-1.5">
-                      {zonas.nas100.soporte && (
-                        <div className="flex gap-2 text-sm">
-                          <span className="text-green-400 w-20 flex-shrink-0">Soporte</span>
-                          <span className="text-gray-300">{zonas.nas100.soporte}</span>
-                        </div>
-                      )}
-                      {zonas.nas100.resistencia && (
-                        <div className="flex gap-2 text-sm">
-                          <span className="text-red-400 w-20 flex-shrink-0">Resist.</span>
-                          <span className="text-gray-300">{zonas.nas100.resistencia}</span>
-                        </div>
-                      )}
+            <Card>
+              <h3 style={labelStyle}>Zonas Clave</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-6)' }}>
+                {(['nas100', 'xauusd'] as const).map((act) => {
+                  const z = zonas[act]
+                  if (!z) return null
+                  return (
+                    <div key={act}>
+                      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 'var(--space-2)' }}>{act.toUpperCase()}</p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {z.soporte && (
+                          <div style={{ display: 'flex', gap: 'var(--space-2)', fontSize: 'var(--text-sm)' }}>
+                            <span style={{ color: 'var(--profit)', width: 70, flexShrink: 0 }}>Soporte</span>
+                            <span style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{z.soporte}</span>
+                          </div>
+                        )}
+                        {z.resistencia && (
+                          <div style={{ display: 'flex', gap: 'var(--space-2)', fontSize: 'var(--text-sm)' }}>
+                            <span style={{ color: 'var(--loss)', width: 70, flexShrink: 0 }}>Resist.</span>
+                            <span style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{z.resistencia}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
-                {zonas.xauusd && (
-                  <div>
-                    <p className="text-xs text-gray-500 mb-2 font-semibold">XAUUSD</p>
-                    <div className="space-y-1.5">
-                      {zonas.xauusd.soporte && (
-                        <div className="flex gap-2 text-sm">
-                          <span className="text-green-400 w-20 flex-shrink-0">Soporte</span>
-                          <span className="text-gray-300">{zonas.xauusd.soporte}</span>
-                        </div>
-                      )}
-                      {zonas.xauusd.resistencia && (
-                        <div className="flex gap-2 text-sm">
-                          <span className="text-red-400 w-20 flex-shrink-0">Resist.</span>
-                          <span className="text-gray-300">{zonas.xauusd.resistencia}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                  )
+                })}
               </div>
-            </div>
+            </Card>
           )}
 
-          {/* ── Gráficos en vivo ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <div style={{ backgroundColor: '#111111', border: '1px solid rgba(255,255,255,0.031)', borderRadius: 16, overflow: 'hidden' }}>
-              <div style={{ padding: '12px 16px 0', fontSize: 11, fontWeight: 600, color: '#1A9BD7', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                NAS100 — 15m
-              </div>
+          {/* Gráficos en vivo */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 'var(--space-4)' }}>
+            <Card padding="none">
+              <p style={{ ...labelStyle, padding: 'var(--space-3) var(--space-4) 0' }}>NAS100 — 15m</p>
               <TradingViewChart symbol="OANDA:NAS100USD" interval="15" height={500} />
-            </div>
-            <div style={{ backgroundColor: '#111111', border: '1px solid rgba(255,255,255,0.031)', borderRadius: 16, overflow: 'hidden' }}>
-              <div style={{ padding: '12px 16px 0', fontSize: 11, fontWeight: 600, color: '#1A9BD7', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                XAUUSD — 15m
-              </div>
+            </Card>
+            <Card padding="none">
+              <p style={{ ...labelStyle, padding: 'var(--space-3) var(--space-4) 0' }}>XAUUSD — 15m</p>
               <TradingViewChart symbol="OANDA:XAUUSD" interval="15" height={500} />
-            </div>
+            </Card>
           </div>
 
-          {/* ── Análisis Técnico ── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <div style={{ backgroundColor: '#111111', border: '1px solid rgba(255,255,255,0.031)', borderRadius: 16, overflow: 'hidden', padding: '12px 16px 0' }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: '#1A9BD7', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
-                Análisis Técnico — NAS100
-              </p>
+          {/* Análisis Técnico */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 'var(--space-4)' }}>
+            <Card padding="none">
+              <p style={{ ...labelStyle, padding: 'var(--space-3) var(--space-4) 0' }}>Análisis Técnico — NAS100</p>
               <TradingViewTechnicalAnalysis symbol="OANDA:NAS100USD" interval="15m" height={425} />
-            </div>
-            <div style={{ backgroundColor: '#111111', border: '1px solid rgba(255,255,255,0.031)', borderRadius: 16, overflow: 'hidden', padding: '12px 16px 0' }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: '#1A9BD7', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
-                Análisis Técnico — XAUUSD
-              </p>
+            </Card>
+            <Card padding="none">
+              <p style={{ ...labelStyle, padding: 'var(--space-3) var(--space-4) 0' }}>Análisis Técnico — XAUUSD</p>
               <TradingViewTechnicalAnalysis symbol="OANDA:XAUUSD" interval="15m" height={425} />
-            </div>
+            </Card>
           </div>
 
-          {/* ── Calendario Económico ── */}
-          <div style={{ backgroundColor: '#111111', border: '1px solid rgba(255,255,255,0.031)', borderRadius: 16, overflow: 'hidden', padding: '12px 16px 0' }}>
-            <p style={{ fontSize: 11, fontWeight: 600, color: '#1A9BD7', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
-              Calendario Económico — US · EU · JP
-            </p>
+          {/* Calendario */}
+          <Card padding="none">
+            <p style={{ ...labelStyle, padding: 'var(--space-3) var(--space-4) 0' }}>Calendario Económico — US · EU · JP</p>
             <TradingViewEconomicCalendar height={400} />
-          </div>
+          </Card>
 
           {/* Plan de acción */}
           {plan && (
-            <div className={card} style={cardStyle}>
-              <h3 className={labelClass} style={labelStyle}>Plan de Acción</h3>
-              {typeof plan === 'string' && (
-                <p className="text-gray-300 text-sm leading-relaxed">{plan}</p>
-              )}
+            <Card>
+              <h3 style={labelStyle}>Plan de Acción</h3>
+              {typeof plan === 'string' && <p style={bodyStyle}>{plan}</p>}
               {typeof plan === 'object' && (
-                <div className="grid grid-cols-2 gap-6">
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-6)' }}>
                   {plan.buscar && plan.buscar.length > 0 && (
                     <div>
-                      <p className="text-xs text-green-400 font-semibold mb-2">Buscar</p>
-                      <ul className="space-y-2">
+                      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--profit)', fontWeight: 600, marginBottom: 'var(--space-2)' }}>Buscar</p>
+                      <ul style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', listStyle: 'none', padding: 0, margin: 0 }}>
                         {plan.buscar.map((item, i) => (
-                          <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
-                            <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 bg-green-400" />
+                          <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                            <span style={{ marginTop: 6, width: 6, height: 6, borderRadius: '50%', background: 'var(--profit)', flexShrink: 0 }} />
                             {item}
                           </li>
                         ))}
@@ -395,11 +341,11 @@ export default function BriefingClient({ initialBriefing, userId }: Props) {
                   )}
                   {plan.evitar && plan.evitar.length > 0 && (
                     <div>
-                      <p className="text-xs text-red-400 font-semibold mb-2">Evitar</p>
-                      <ul className="space-y-2">
+                      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--loss)', fontWeight: 600, marginBottom: 'var(--space-2)' }}>Evitar</p>
+                      <ul style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', listStyle: 'none', padding: 0, margin: 0 }}>
                         {plan.evitar.map((item, i) => (
-                          <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
-                            <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 bg-red-400" />
+                          <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                            <span style={{ marginTop: 6, width: 6, height: 6, borderRadius: '50%', background: 'var(--loss)', flexShrink: 0 }} />
                             {item}
                           </li>
                         ))}
@@ -408,20 +354,8 @@ export default function BriefingClient({ initialBriefing, userId }: Props) {
                   )}
                 </div>
               )}
-            </div>
+            </Card>
           )}
-
-          {/* Regenerar */}
-          <div className="flex justify-end pb-4">
-            <button
-              onClick={generarBriefing}
-              disabled={loading}
-              className="px-4 py-2 rounded-lg text-xs font-medium text-gray-500 hover:text-white transition-colors disabled:opacity-50"
-              style={{ border: '1px solid #333' }}
-            >
-              {loading ? 'Regenerando...' : 'Regenerar briefing'}
-            </button>
-          </div>
         </div>
       )}
     </div>

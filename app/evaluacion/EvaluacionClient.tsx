@@ -1,21 +1,47 @@
 'use client'
 
-import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+// ─────────────────────────────────────────────────────────────────────────
+// app/evaluacion/EvaluacionClient.tsx — Evaluación semanal (Iter 2)
+// ─────────────────────────────────────────────────────────────────────────
+// Sección 1 · Resumen semanal automático (últimos 7 días)
+// Sección 2 · Conclusiones operativas (Claude · weekly-insights EF)
+// Sección 3 · Historial de session_reviews
+// ─────────────────────────────────────────────────────────────────────────
 
-// Los campos pueden venir como objetos desde Supabase — usar unknown
+import { useState } from 'react'
+import {
+  Sparkles, CheckCircle2, AlertTriangle, Target, ShieldOff,
+  TrendingUp, BarChart3, Clock,
+} from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Card } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Badge } from '@/components/ui/Badge'
+import { StatCard } from '@/components/ui/StatCard'
+import { EmptyState } from '@/components/ui/EmptyState'
+import type { Trade } from '@/types/trading'
+
 interface SessionReview {
   id: string
   fecha: string
   [key: string]: unknown
 }
 
+interface WeeklyInsights {
+  bien?: string[]
+  mal?: string[]
+  aplicar?: string[]
+  evitar?: string[]
+  resumen?: string
+}
+
 interface Props {
   userId: string
   historial: SessionReview[]
+  weeklyTrades: Trade[]
 }
 
-/** Convierte cualquier valor a número o null */
 function toNum(v: unknown): number | null {
   if (v == null) return null
   if (typeof v === 'number') return v
@@ -23,239 +49,327 @@ function toNum(v: unknown): number | null {
   return null
 }
 
-/** Convierte cualquier valor a string legible */
 function toStr(v: unknown): string {
   if (v == null) return '—'
   if (typeof v === 'string') return v
   if (typeof v === 'number') return String(v)
-  if (typeof v === 'object') return JSON.stringify(v)
   return String(v)
 }
 
-/** Convierte cualquier valor a array de strings */
 function toStrArr(v: unknown): string[] {
   if (!v) return []
-  if (Array.isArray(v)) return v.map(toStr)
+  if (Array.isArray(v)) return v.map(toStr).filter((s) => s && s !== '—')
   if (typeof v === 'string') return [v]
   return []
 }
 
-export default function EvaluacionClient({ userId, historial: initialHistorial }: Props) {
+// ─── Cálculo de métricas semanales (puro, sin red) ───────────────────────
+function computeWeeklyStats(trades: Trade[]) {
+  const cerrados = trades.filter((t) => t.resultado !== null && t.r_obtenido !== null)
+  const total = cerrados.length
+  const wins = cerrados.filter((t) => (t.r_obtenido ?? 0) > 0).length
+  const losses = cerrados.filter((t) => (t.r_obtenido ?? 0) < 0).length
+  const totalR = cerrados.reduce((s, t) => s + (t.r_obtenido ?? 0), 0)
+  const winRate = total > 0 ? (wins / total) * 100 : 0
+  const promR = total > 0 ? totalR / total : 0
+  const disciplinados = cerrados.filter((t) => t.siguio_reglas).length
+  const disciplina = total > 0 ? (disciplinados / total) * 100 : 0
+  return { total, wins, losses, totalR, winRate, promR, disciplina }
+}
+
+export default function EvaluacionClient({
+  userId, historial: initialHistorial, weeklyTrades,
+}: Props) {
   const supabase = createClient()
   const [historial, setHistorial] = useState<SessionReview[]>(initialHistorial)
-  const [evaluacion, setEvaluacion] = useState<SessionReview | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [insights, setInsights] = useState<WeeklyInsights | null>(null)
+  const [loadingInsights, setLoadingInsights] = useState(false)
+  const [errorInsights, setErrorInsights] = useState<string | null>(null)
 
   const today = new Date().toISOString().split('T')[0]
   const todayLabel = new Date().toLocaleDateString('es-MX', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   })
 
-  async function handleEvaluar() {
-    setError(null)
-    setLoading(true)
+  const stats = computeWeeklyStats(weeklyTrades)
+  const hasData = stats.total >= 3
 
+  async function generarInsights() {
+    setErrorInsights(null)
+    setLoadingInsights(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error('Sin sesión activa')
 
       const res = await fetch(
-        'https://ymosnytxyveedpsubdke.supabase.co/functions/v1/evaluate-session',
+        'https://ymosnytxyveedpsubdke.supabase.co/functions/v1/weekly-insights',
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ fecha: today, user_id: userId }),
+          body: JSON.stringify({ user_id: userId, fecha: today }),
         }
       )
 
       const rawText = await res.text()
-      console.log('[evaluacion] raw:', rawText.slice(0, 500))
-
       let data: Record<string, unknown>
       try { data = JSON.parse(rawText) } catch {
         throw new Error(`Respuesta inválida (${res.status}): ${rawText.slice(0, 200)}`)
       }
-
       if (!res.ok) throw new Error(String(data.error ?? data.message ?? `Error ${res.status}`))
 
-      const nueva = (data.evaluacion ?? data) as SessionReview
-      console.log('[evaluacion] parsed:', nueva)
-      setEvaluacion(nueva)
-      setHistorial(prev => [nueva, ...prev.filter(h => h.fecha !== today)])
+      const ins = (data.insights ?? data) as WeeklyInsights
+      setInsights(ins)
+
+      // Si la EF también guarda en session_reviews, agregamos al historial
+      if (data.review) {
+        const review = data.review as SessionReview
+        setHistorial((prev) => [review, ...prev.filter((h) => h.fecha !== review.fecha)])
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error desconocido')
+      setErrorInsights(err instanceof Error ? err.message : 'Error desconocido')
     } finally {
-      setLoading(false)
+      setLoadingInsights(false)
     }
   }
 
-  const displayed = evaluacion ?? historial.find(h => h.fecha === today) ?? null
-
-  function renderMetricas(d: SessionReview) {
-    const trades = toNum(d.total_trades) ?? '—'
-    const wr = toNum(d.win_rate)
-    const rr = toNum(d.rr_promedio)
-    // EF guarda como 'pnl' (en R), campo legacy 'pnl_neto' también soportado
-    const pnl = toNum(d.pnl) ?? toNum(d.pnl_neto)
-
-    const metricas = [
-      { label: 'Trades', value: trades },
-      { label: 'Win Rate', value: wr != null ? `${wr.toFixed(1)}%` : '—' },
-      { label: 'R:R Prom.', value: rr != null ? rr.toFixed(2) : '—' },
-      { label: 'P&L (R)', value: pnl != null ? (pnl >= 0 ? `+${pnl}R` : `${pnl}R`) : '—' },
-    ]
-
-    return (
-      <div className="grid grid-cols-4 gap-4">
-        {metricas.map(({ label, value }) => (
-          <div key={label} className="rounded-2xl p-4 text-center"
-            style={{ backgroundColor: '#111111', border: '1px solid #222222' }}>
-            <p className="text-xs text-gray-500 mb-1">{label}</p>
-            <p className="text-xl font-bold text-white">{String(value)}</p>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  function renderLista(items: string[], color: string) {
-    return (
-      <ul className="space-y-2">
-        {items.map((item, i) => (
-          <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
-            <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-            {item}
-          </li>
-        ))}
-      </ul>
-    )
-  }
-
   return (
-    <div className="max-w-3xl mx-auto">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Evaluación</h1>
-          <p className="text-gray-500 text-sm mt-1 capitalize">{todayLabel}</p>
-        </div>
-        <button
-          onClick={handleEvaluar}
-          disabled={loading}
-          className="px-5 py-2.5 rounded-lg text-white font-semibold text-sm disabled:opacity-60 flex items-center gap-2"
-          style={{ backgroundColor: '#1A9BD7' }}
-        >
-          {loading ? (
-            <>
-              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Evaluando...
-            </>
-          ) : 'Evaluar sesión de hoy'}
-        </button>
-      </div>
+    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <PageHeader
+        title="Evaluación"
+        subtitle={todayLabel}
+        action={
+          <Button
+            variant="primary"
+            size="md"
+            loading={loadingInsights}
+            disabled={!hasData}
+            icon={<Sparkles size={14} />}
+            onClick={generarInsights}
+          >
+            Generar conclusiones
+          </Button>
+        }
+      />
 
-      {error && (
-        <div className="mb-6 px-4 py-3 rounded-lg text-red-400 text-sm" style={{ backgroundColor: '#dc262620' }}>
-          {error}
+      {/* ── SECCIÓN 1: Resumen semanal ─────────────────────────────── */}
+      <h2 style={sectionTitle}>
+        <BarChart3 size={16} style={{ verticalAlign: 'middle', marginRight: 8 }} />
+        Resumen semanal · últimos 7 días
+      </h2>
+
+      {hasData ? (
+        <div className="grid-dashboard" style={{ marginBottom: 'var(--space-8)' }}>
+          <StatCard
+            label="Trades cerrados"
+            value={stats.total}
+            hint={`${stats.wins}W · ${stats.losses}L`}
+            icon={<TrendingUp size={14} />}
+          />
+          <StatCard
+            label="Win Rate"
+            value={`${stats.winRate.toFixed(1)}%`}
+            variant={stats.winRate >= 50 ? 'profit' : 'loss'}
+            icon={<Target size={14} />}
+          />
+          <StatCard
+            label="R Total"
+            value={`${stats.totalR >= 0 ? '+' : ''}${stats.totalR.toFixed(2)}R`}
+            variant={stats.totalR >= 0 ? 'profit' : 'loss'}
+            delta={`${stats.promR >= 0 ? '+' : ''}${stats.promR.toFixed(2)}R prom.`}
+            trend={stats.promR >= 0 ? 'up' : 'down'}
+          />
+          <StatCard
+            label="Disciplina"
+            value={`${stats.disciplina.toFixed(0)}%`}
+            variant={stats.disciplina >= 80 ? 'profit' : stats.disciplina >= 60 ? 'neutral' : 'loss'}
+            icon={<CheckCircle2 size={14} />}
+            hint="Reglas seguidas"
+          />
         </div>
+      ) : (
+        <Card style={{ marginBottom: 'var(--space-8)' }}>
+          <EmptyState
+            icon={<Clock size={28} />}
+            title="Aún no hay suficiente data semanal"
+            description={`Llevas ${stats.total} trades cerrados esta semana. Con 3 o más generamos el resumen y las conclusiones.`}
+          />
+        </Card>
       )}
 
-      {/* Evaluación de hoy */}
-      {displayed && (
-        <div className="space-y-5 mb-10">
-          {renderMetricas(displayed)}
+      {/* ── SECCIÓN 2: Conclusiones operativas (Claude) ────────────── */}
+      <h2 style={sectionTitle}>
+        <Sparkles size={16} style={{ verticalAlign: 'middle', marginRight: 8 }} />
+        Conclusiones operativas
+      </h2>
 
-          {/* Nota general */}
-          {!!displayed.nota_general && (
-            <div className="rounded-2xl p-6" style={{ backgroundColor: '#111111', border: '1px solid #222222' }}>
-              <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#1A9BD7' }}>
-                Evaluación general
-              </h3>
-              <p className="text-gray-300 text-sm leading-relaxed">{toStr(displayed.nota_general)}</p>
-            </div>
-          )}
-
-          {/* Errores */}
-          {toStrArr(displayed.errores).length > 0 && (
-            <div className="rounded-2xl p-6" style={{ backgroundColor: '#111111', border: '1px solid #222222' }}>
-              <h3 className="text-xs font-semibold uppercase tracking-wider mb-4 text-red-400">Errores detectados</h3>
-              {renderLista(toStrArr(displayed.errores), '#f87171')}
-            </div>
-          )}
-
-          {/* Patrones */}
-          <div className="grid grid-cols-2 gap-4">
-            {toStrArr(displayed.patrones_positivos).length > 0 && (
-              <div className="rounded-2xl p-6" style={{ backgroundColor: '#111111', border: '1px solid #222222' }}>
-                <h3 className="text-xs font-semibold uppercase tracking-wider mb-4 text-green-400">Patrones positivos</h3>
-                {renderLista(toStrArr(displayed.patrones_positivos), '#4ade80')}
-              </div>
-            )}
-            {toStrArr(displayed.patrones_negativos).length > 0 && (
-              <div className="rounded-2xl p-6" style={{ backgroundColor: '#111111', border: '1px solid #222222' }}>
-                <h3 className="text-xs font-semibold uppercase tracking-wider mb-4 text-yellow-400">Patrones negativos</h3>
-                {renderLista(toStrArr(displayed.patrones_negativos), '#fbbf24')}
-              </div>
-            )}
+      {errorInsights && (
+        <Card padding="sm" style={{
+          marginBottom: 'var(--space-5)',
+          background: 'var(--loss-bg)',
+          borderColor: 'var(--loss)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--loss)', fontSize: 'var(--text-sm)' }}>
+            <AlertTriangle size={14} />
+            {errorInsights}
           </div>
+        </Card>
+      )}
 
-          {/* Acción mañana */}
-          {!!displayed.accion_manana && (
-            <div className="rounded-2xl p-6" style={{ backgroundColor: '#1A9BD710', border: '1px solid #1A9BD730' }}>
-              <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#1A9BD7' }}>
-                Acción para mañana
-              </h3>
-              <p className="text-gray-300 text-sm leading-relaxed">{toStr(displayed.accion_manana)}</p>
-            </div>
+      {!insights && !loadingInsights && (
+        <Card style={{ marginBottom: 'var(--space-8)' }}>
+          <EmptyState
+            icon={<Sparkles size={28} />}
+            title="Tefa no ha analizado tu semana aún"
+            description={hasData
+              ? 'Pulsa “Generar conclusiones” para que Tefa identifique patrones y te diga qué aplicar mañana.'
+              : 'Necesitamos al menos 3 trades cerrados para generar conclusiones útiles.'}
+          />
+        </Card>
+      )}
+
+      {insights && (
+        <div style={{ marginBottom: 'var(--space-8)' }}>
+          {insights.resumen && (
+            <Card style={{ marginBottom: 'var(--space-4)' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', lineHeight: 1.55, margin: 0 }}>
+                {insights.resumen}
+              </p>
+            </Card>
           )}
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: 'var(--space-4)',
+          }}>
+            <BulletCard
+              icon={<CheckCircle2 size={14} />}
+              title="Qué hiciste bien"
+              items={toStrArr(insights.bien)}
+              color="var(--profit)"
+            />
+            <BulletCard
+              icon={<AlertTriangle size={14} />}
+              title="Qué repetiste mal"
+              items={toStrArr(insights.mal)}
+              color="var(--loss)"
+            />
+            <BulletCard
+              icon={<Target size={14} />}
+              title="Qué aplicar la próxima sesión"
+              items={toStrArr(insights.aplicar)}
+              color="var(--accent-primary)"
+            />
+            <BulletCard
+              icon={<ShieldOff size={14} />}
+              title="Qué evitar"
+              items={toStrArr(insights.evitar)}
+              color="var(--loss)"
+            />
+          </div>
         </div>
       )}
 
-      {!displayed && !loading && (
-        <div className="rounded-2xl p-12 text-center mb-10"
-          style={{ backgroundColor: '#111111', border: '1px solid #222222' }}>
-          <p className="text-gray-600 text-sm">Aún no hay evaluación para hoy. Pulsa el botón para generarla.</p>
-        </div>
-      )}
+      {/* ── SECCIÓN 3: Historial ───────────────────────────────────── */}
+      <h2 style={sectionTitle}>
+        <Clock size={16} style={{ verticalAlign: 'middle', marginRight: 8 }} />
+        Historial de evaluaciones
+      </h2>
 
-      {/* Historial */}
-      {historial.filter(h => h.fecha !== today).length > 0 && (
-        <div className="rounded-2xl p-6" style={{ backgroundColor: '#111111', border: '1px solid #222222' }}>
-          <h3 className="text-xs font-semibold uppercase tracking-wider mb-4" style={{ color: '#1A9BD7' }}>
-            Historial reciente
-          </h3>
-          <ul className="space-y-3">
-            {historial.filter(h => h.fecha !== today).map(h => {
-              const pnl = toNum(h.pnl)
+      {historial.length === 0 ? (
+        <Card>
+          <EmptyState
+            title="Sin evaluaciones previas"
+            description="Cada conclusión generada quedará registrada aquí."
+          />
+        </Card>
+      ) : (
+        <Card padding="none">
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {historial.map((h, i) => {
+              const pnl = toNum(h.pnl) ?? toNum(h.pnl_neto)
               const rr = toNum(h.rr_promedio)
               const wr = toNum(h.win_rate)
               const trades = toNum(h.total_trades)
               return (
-                <li key={h.id}
-                  className="flex items-center justify-between py-3 px-4 rounded-xl"
-                  style={{ backgroundColor: '#0a0a0a', border: '1px solid #222' }}>
-                  <span className="text-sm text-gray-400">{String(h.fecha)}</span>
-                  <div className="flex gap-4 text-xs text-gray-500">
+                <li key={h.id} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: 'var(--space-4) var(--space-5)',
+                  borderBottom: i < historial.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                  flexWrap: 'wrap', gap: 'var(--space-3)',
+                }}>
+                  <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                    {String(h.fecha)}
+                  </span>
+                  <div style={{ display: 'flex', gap: 'var(--space-4)', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', alignItems: 'center' }}>
                     <span>{trades ?? '—'} trades</span>
-                    <span>{wr ?? '—'}% WR</span>
+                    <span>{wr != null ? `${wr.toFixed(0)}% WR` : '— WR'}</span>
                     <span>R:R {rr != null ? rr.toFixed(2) : '—'}</span>
-                    <span className={pnl != null && pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
-                      {pnl != null ? (pnl >= 0 ? `+${pnl}` : `${pnl}`) : '—'}
-                    </span>
+                    {pnl != null && (
+                      <Badge variant={pnl >= 0 ? 'profit' : 'loss'} size="sm">
+                        {pnl >= 0 ? `+${pnl.toFixed(2)}R` : `${pnl.toFixed(2)}R`}
+                      </Badge>
+                    )}
                   </div>
                 </li>
               )
             })}
           </ul>
-        </div>
+        </Card>
       )}
     </div>
+  )
+}
+
+// ─── Helpers visuales ────────────────────────────────────────────────────
+
+const sectionTitle: React.CSSProperties = {
+  fontSize: 'var(--text-base)',
+  fontWeight: 600,
+  color: 'var(--text-primary)',
+  margin: 0,
+  marginBottom: 'var(--space-4)',
+  marginTop: 'var(--space-6)',
+}
+
+function BulletCard({
+  icon, title, items, color,
+}: { icon: React.ReactNode; title: string; items: string[]; color: string }) {
+  return (
+    <Card>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
+        marginBottom: 'var(--space-3)', color,
+      }}>
+        {icon}
+        <span style={{
+          fontSize: 'var(--text-xs)', fontWeight: 700,
+          textTransform: 'uppercase', letterSpacing: '0.06em',
+        }}>
+          {title}
+        </span>
+      </div>
+      {items.length === 0 ? (
+        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', margin: 0 }}>—</p>
+      ) : (
+        <ul style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', listStyle: 'none', padding: 0, margin: 0 }}>
+          {items.map((item, i) => (
+            <li key={i} style={{
+              display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)',
+              fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5,
+            }}>
+              <span style={{
+                marginTop: 7, width: 5, height: 5, borderRadius: '50%',
+                background: color, flexShrink: 0,
+              }} />
+              {item}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   )
 }

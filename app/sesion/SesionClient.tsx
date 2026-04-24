@@ -23,6 +23,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import TradingViewMiniChart from '@/components/TradingViewMiniChart'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Tabs } from '@/components/ui/Tabs'
+import { Badge } from '@/components/ui/Badge'
+import SesionAnalysisTab from './SesionAnalysisTab'
+import type { Trade as TradeFull } from '@/types/trading'
 
 const TV_SYMBOL: Record<string, string> = {
   NAS100: 'OANDA:NAS100USD',
@@ -75,6 +80,7 @@ interface Trade {
 interface Props {
   userId: string
   initialTrades: Trade[]
+  historicTrades?: TradeFull[]
 }
 
 // ── Constantes ────────────────────────────────────────────────────────────
@@ -310,9 +316,10 @@ function CollapsibleSection({
 // Componente principal
 // ─────────────────────────────────────────────────────────────────────────
 
-export default function SesionClient({ userId, initialTrades }: Props) {
+export default function SesionClient({ userId, initialTrades, historicTrades = [] }: Props) {
   const supabase = createClient()
   const [trades, setTrades] = useState<Trade[]>(initialTrades)
+  const [activeTab, setActiveTab] = useState<'registrar' | 'analisis'>('registrar')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -579,17 +586,34 @@ export default function SesionClient({ userId, initialTrades }: Props) {
 
   return (
     <div style={{ maxWidth: 680, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 32, flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: S.t1, margin: 0 }}>Sesión</h1>
-          <p style={{ fontSize: 13, color: S.t3, marginTop: 4, textTransform: 'capitalize' }}>{today}</p>
-        </div>
-        <div style={{ padding: '6px 14px', borderRadius: 10, backgroundColor: S.accentBg, color: S.accent, fontSize: 13, fontWeight: 600 }}>
-          {trades.length} trade{trades.length !== 1 ? 's' : ''} hoy
-        </div>
+      <PageHeader
+        title="Sesión"
+        subtitle={today}
+        action={
+          <Badge variant="info">
+            {trades.length} trade{trades.length !== 1 ? 's' : ''} hoy
+          </Badge>
+        }
+      />
+
+      <div style={{ marginBottom: 'var(--space-6)' }}>
+        <Tabs
+          tabs={[
+            { id: 'registrar', label: 'Registrar' },
+            { id: 'analisis', label: 'Análisis' },
+          ]}
+          activeTab={activeTab}
+          onChange={(id) => setActiveTab(id as 'registrar' | 'analisis')}
+          ariaLabel="Vista de sesión"
+        />
       </div>
 
+      {activeTab === 'analisis' && (
+        <SesionAnalysisTab trades={historicTrades as unknown as TradeFull[]} />
+      )}
+
+      {activeTab === 'registrar' && (
+      <>
       <form onSubmit={handleSubmit}>
 
         {/* A — Contexto Pre-Trade */}
@@ -1002,6 +1026,8 @@ export default function SesionClient({ userId, initialTrades }: Props) {
         }}>
           <p style={{ color: S.t3, fontSize: 13 }}>No hay trades registrados hoy.</p>
         </div>
+      )}
+      </>
       )}
 
       {/* Modal cerrar trade */}
