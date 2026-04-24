@@ -1,13 +1,12 @@
 'use client'
 
 // ─────────────────────────────────────────────────────────────────────────
-// app/DashboardClient.tsx — UI del Dashboard (Fase 4)
+// app/DashboardClient.tsx — Dashboard rediseñado (Iteración 1.5)
 // ─────────────────────────────────────────────────────────────────────────
-// 4 filas:
-//   FILA 1 · Estado hoy     (¿Puedo operar? / Riesgo / Sesgo)
-//   FILA 2 · Rendimiento    (WR30d / PF / R mes / Racha)
-//   FILA 3 · Inteligencia   (Insights Tefa / Mejor setup / Punto débil)
-//   FILA 4 · Gráficas       (Equity / WR día semana / Dist. trigger)
+// Migrado al sistema de diseño ORZ Professional:
+//   • PageHeader, Card, StatCard, Badge, EmptyState (components/ui/*)
+//   • Recharts con chart-theme (dark Bloomberg-style)
+//   • Mantiene 4 filas: Estado hoy / Rendimiento / Inteligencia / Charts
 // ─────────────────────────────────────────────────────────────────────────
 
 import Link from 'next/link'
@@ -16,22 +15,25 @@ import {
   CartesianGrid, ReferenceLine,
 } from 'recharts'
 import {
-  statsBySession,
-  statsByTrigger,
-  statsByEmotion,
-  statsByDayOfWeek,
-  disciplineScore,
+  Activity, TrendingUp, Target, Flame, Lock, Sparkles, AlertTriangle,
+  CheckCircle2, BarChart3,
+} from 'lucide-react'
+import {
+  statsByTrigger, statsBySession, statsByEmotion, statsByDayOfWeek,
   detectDangerousPatterns,
 } from '@/lib/analytics'
-import type { Trade, TraderStats, DangerAlert, SegmentStats } from '@/types/trading'
+import type { Trade, TraderStats, DangerAlert } from '@/types/trading'
+import { Card } from '@/components/ui/Card'
+import { StatCard } from '@/components/ui/StatCard'
+import { Badge } from '@/components/ui/Badge'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Button } from '@/components/ui/Button'
+import {
+  chartTheme, axisProps, gridProps, tooltipStyle, tooltipLabelStyle, tooltipItemStyle,
+} from '@/components/ui/chart-theme'
 
-const ACCENT = '#1A9BD7'
-const GREEN  = '#22c55e'
-const YELLOW = '#eab308'
-const RED    = '#ef4444'
 const MIN_TRADES_FOR_AI = 10
-
-// ─────────────────────────────────────────────────────────────────────────
 
 interface Props {
   stats: TraderStats | null
@@ -52,59 +54,58 @@ export default function DashboardClient({ stats, trades, briefing }: Props) {
   const totalClosed = trades.filter((t) => t.resultado !== null).length
   const alerts = detectDangerousPatterns(trades)
 
+  const hoy = new Date().toLocaleDateString('es-ES', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  })
+
   return (
     <div style={{ maxWidth: 1400, margin: '0 auto' }}>
-      <Header totalClosed={totalClosed} />
+      <PageHeader
+        title="Dashboard"
+        subtitle={
+          <span style={{ textTransform: 'capitalize' }}>
+            {hoy} · {totalClosed} trades cerrados en tu histórico
+          </span>
+        }
+        action={
+          <Link href="/sesion">
+            <Button variant="primary" size="sm" icon={<Activity size={14} />}>
+              Nueva sesión
+            </Button>
+          </Link>
+        }
+      />
 
       {totalClosed === 0 ? (
-        <EmptyState />
+        <EmptyState
+          icon={<BarChart3 size={28} />}
+          title="Aún no hay trades cerrados"
+          description={
+            <>
+              Registra tu primer trade en <Link href="/sesion" style={{ color: 'var(--accent-primary)' }}>Sesión</Link>{' '}
+              o valida un setup en <Link href="/validar" style={{ color: 'var(--accent-primary)' }}>Validar</Link> para empezar.
+            </>
+          }
+          action={
+            <Link href="/sesion">
+              <Button variant="primary">Ir a sesión</Button>
+            </Link>
+          }
+          size="lg"
+        />
       ) : (
-        <>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           <Fila1 trades={trades} briefing={briefing} />
           <Fila2 stats={stats} trades={trades} />
           <Fila3 trades={trades} alerts={alerts} enoughData={totalClosed >= MIN_TRADES_FOR_AI} />
           <Fila4 trades={trades} />
-        </>
+        </div>
       )}
     </div>
   )
 }
 
-// ─── Header ───────────────────────────────────────────────────────────────
-
-function Header({ totalClosed }: { totalClosed: number }) {
-  const hoy = new Date().toLocaleDateString('es-ES', {
-    weekday: 'long', day: 'numeric', month: 'long',
-  })
-  return (
-    <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
-      <div>
-        <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0, letterSpacing: -0.5 }}>Dashboard</h1>
-        <p style={{ color: 'var(--text-tertiary)', fontSize: 13, margin: '4px 0 0', textTransform: 'capitalize' }}>{hoy}</p>
-      </div>
-      <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
-        {totalClosed} trades cerrados en tu histórico
-      </div>
-    </div>
-  )
-}
-
-// ─── Empty ────────────────────────────────────────────────────────────────
-
-function EmptyState() {
-  return (
-    <div className="card" style={{ textAlign: 'center', padding: '64px 24px' }}>
-      <div style={{ fontSize: 48, marginBottom: 16 }}>📊</div>
-      <h2 style={{ fontSize: 20, margin: '0 0 8px' }}>Sin trades aún</h2>
-      <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 20 }}>
-        Registra tu primer trade en la <Link href="/sesion" style={{ color: ACCENT }}>sesión</Link> o
-        valida un setup en <Link href="/validar" style={{ color: ACCENT }}>Validar</Link> para empezar.
-      </p>
-    </div>
-  )
-}
-
-// ─── FILA 1 ───────────────────────────────────────────────────────────────
+// ─── FILA 1: Estado hoy ──────────────────────────────────────────────────
 
 function Fila1({ trades, briefing }: { trades: Trade[]; briefing: Props['briefing'] }) {
   const hoy = new Date().toISOString().slice(0, 10)
@@ -112,12 +113,11 @@ function Fila1({ trades, briefing }: { trades: Trade[]; briefing: Props['briefin
   const rHoy = tradesHoy.reduce((a, t) => a + (t.r_obtenido ?? 0), 0)
   const lossesHoy = tradesHoy.filter((t) => t.resultado === 'Loss').length
 
-  // Última emoción registrada
   const lastTrade = trades[0]
   const ultimaEmocion = lastTrade?.emocion ?? null
-  const emocionPeligrosa = ultimaEmocion === 'Revanchista' || ultimaEmocion === 'Frustrado' || ultimaEmocion === 'Eufórico'
+  const emocionPeligrosa =
+    ultimaEmocion === 'Revanchista' || ultimaEmocion === 'Frustrado' || ultimaEmocion === 'Eufórico'
 
-  // Semáforo
   let semaforo: 'green' | 'yellow' | 'red' = 'green'
   let semaforoTexto = 'Operar con normalidad'
   if (rHoy <= -3) {
@@ -130,113 +130,125 @@ function Fila1({ trades, briefing }: { trades: Trade[]; briefing: Props['briefin
       : `Precaución — ${lossesHoy} losses hoy (${rHoy.toFixed(2)}R)`
   }
 
-  // Riesgo permitido hoy
-  let riesgoTexto = '1R estándar por trade'
-  if (rHoy <= -3) riesgoTexto = 'Pausado'
-  else if (lossesHoy >= 2 || rHoy <= -2) riesgoTexto = '0.5R reducido'
+  let riesgoTexto = '1R estándar'
+  let riesgoVariant: 'default' | 'profit' | 'loss' | 'neutral' = 'default'
+  if (rHoy <= -3) { riesgoTexto = 'Pausado';      riesgoVariant = 'loss' }
+  else if (lossesHoy >= 2 || rHoy <= -2) { riesgoTexto = '0.5R reducido'; riesgoVariant = 'neutral' }
 
   return (
-    <Row>
-      {/* ¿Puedo operar hoy? */}
+    <div className="grid-dashboard">
+      {/* ¿Puedo operar? */}
       <Card>
-        <CardLabel>¿Puedo operar hoy?</CardLabel>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14 }}>
+        <div className="stat-row">
+          <span className="stat-label">¿Puedo operar hoy?</span>
           <Semaforo color={semaforo} />
-          <div>
-            <div style={{ fontSize: 17, fontWeight: 600 }}>
-              {semaforo === 'green' ? 'Verde' : semaforo === 'yellow' ? 'Amarillo' : 'Rojo'}
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-              {semaforoTexto}
-            </div>
-          </div>
         </div>
-        <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-muted)', fontSize: 12, color: 'var(--text-tertiary)', display: 'flex', justifyContent: 'space-between' }}>
-          <span>Trades hoy: <b style={{ color: 'var(--text-secondary)' }}>{tradesHoy.length}</b></span>
-          <span>R hoy: <b style={{ color: rHoy >= 0 ? GREEN : RED }}>{rHoy >= 0 ? '+' : ''}{rHoy.toFixed(2)}R</b></span>
+        <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 600, color: 'var(--text-primary)', marginTop: 8 }}>
+          {semaforo === 'green' ? 'Verde' : semaforo === 'yellow' ? 'Amarillo' : 'Rojo'}
+        </div>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 }}>
+          {semaforoTexto}
+        </div>
+        <div className="divider" style={{ margin: '14px 0 12px' }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+          <span>Trades hoy: <b className="tabular-num" style={{ color: 'var(--text-secondary)' }}>{tradesHoy.length}</b></span>
+          <span>
+            R hoy:{' '}
+            <b className="tabular-num" style={{ color: rHoy >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+              {rHoy >= 0 ? '+' : ''}{rHoy.toFixed(2)}R
+            </b>
+          </span>
         </div>
       </Card>
 
-      {/* Riesgo */}
-      <Card>
-        <CardLabel>Riesgo permitido hoy</CardLabel>
-        <div style={{ fontSize: 26, fontWeight: 700, marginTop: 14, color: riesgoTexto === 'Pausado' ? RED : riesgoTexto.startsWith('0.5') ? YELLOW : 'var(--text-primary)' }}>
-          {riesgoTexto}
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8 }}>
-          {riesgoTexto === 'Pausado'
+      {/* Riesgo permitido */}
+      <StatCard
+        label="Riesgo permitido hoy"
+        value={riesgoTexto}
+        variant={riesgoVariant}
+        size="sm"
+        icon={<Target size={16} />}
+        hint={
+          riesgoTexto === 'Pausado'
             ? 'DD diario excedido. Día cerrado para proteger capital.'
             : riesgoTexto.startsWith('0.5')
               ? 'Recuperación mode — mitad de riesgo hasta recomponer.'
-              : 'Sin restricciones. Respetá tu plan.'}
-        </div>
-      </Card>
+              : 'Sin restricciones. Respetá tu plan.'
+        }
+      />
 
       {/* Sesgo del día */}
       <Card>
-        <CardLabel>Sesgo del día</CardLabel>
+        <div className="stat-row">
+          <span className="stat-label">Sesgo del día</span>
+        </div>
         {briefing ? (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
+          <>
+            <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
               <SesgoPill label="NAS100" value={briefing.sesgo_nas100 ?? '—'} />
               <SesgoPill label="XAUUSD" value={briefing.sesgo_xauusd ?? '—'} />
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              {briefing.condicion && <span style={{ color: 'var(--text-tertiary)' }}>Condición: </span>}
-              {briefing.condicion ?? 'Sin briefing hoy'}
-            </div>
-            <Link href="/briefing" style={{ fontSize: 12, color: ACCENT, marginTop: 10, display: 'inline-block' }}>
+            {briefing.condicion && (
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5, marginTop: 12 }}>
+                <span style={{ color: 'var(--text-tertiary)' }}>Condición: </span>
+                {briefing.condicion}
+              </div>
+            )}
+            <Link href="/briefing" style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-primary)', marginTop: 12, display: 'inline-block' }}>
               Ver briefing completo →
             </Link>
-          </div>
+          </>
         ) : (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Sin briefing generado hoy</div>
-            <Link href="/briefing" style={{ fontSize: 12, color: ACCENT, marginTop: 10, display: 'inline-block' }}>
+          <>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 12 }}>
+              Sin briefing generado hoy
+            </div>
+            <Link href="/briefing" style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-primary)', marginTop: 10, display: 'inline-block' }}>
               Generar briefing →
             </Link>
-          </div>
+          </>
         )}
       </Card>
-    </Row>
+    </div>
   )
 }
 
 function Semaforo({ color }: { color: 'green' | 'yellow' | 'red' }) {
-  const c = color === 'green' ? GREEN : color === 'yellow' ? YELLOW : RED
+  const c = color === 'green' ? 'var(--profit)' : color === 'yellow' ? 'var(--neutral)' : 'var(--loss)'
+  const glow = color === 'green' ? 'rgba(0,230,118,0.3)' : color === 'yellow' ? 'rgba(251,191,36,0.3)' : 'rgba(255,59,74,0.3)'
   return (
     <div style={{
-      width: 44, height: 44, borderRadius: '50%',
-      background: `radial-gradient(circle at 30% 30%, ${c}, ${c}aa)`,
-      boxShadow: `0 0 24px ${c}55`,
-      flexShrink: 0,
+      width: 14, height: 14, borderRadius: '50%',
+      background: c, boxShadow: `0 0 16px ${glow}`,
     }} />
   )
 }
 
 function SesgoPill({ label, value }: { label: string; value: string }) {
   const v = value.toLowerCase()
-  const color = v.includes('alcista') || v.includes('long') ? GREEN
-              : v.includes('bajista') || v.includes('short') ? RED
-              : 'var(--text-secondary)'
+  const variant: 'profit' | 'loss' | 'default' =
+    v.includes('alcista') || v.includes('long') ? 'profit'
+    : v.includes('bajista') || v.includes('short') ? 'loss'
+    : 'default'
   return (
     <div style={{
-      flex: 1,
+      flex: 1, minWidth: 110,
       padding: '10px 12px',
-      borderRadius: 10,
-      border: '1px solid var(--border-muted)',
-      background: 'rgba(255,255,255,0.02)',
+      borderRadius: 'var(--radius-md)',
+      border: '1px solid var(--border-subtle)',
+      background: 'var(--bg-elevated)',
     }}>
-      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.6 }}>{label}</div>
-      <div style={{ fontSize: 14, fontWeight: 600, color, marginTop: 2 }}>{value}</div>
+      <div className="stat-label" style={{ fontSize: 10 }}>{label}</div>
+      <div style={{ marginTop: 4 }}>
+        <Badge variant={variant} size="md">{value}</Badge>
+      </div>
     </div>
   )
 }
 
-// ─── FILA 2 ───────────────────────────────────────────────────────────────
+// ─── FILA 2: Rendimiento ─────────────────────────────────────────────────
 
 function Fila2({ stats, trades }: { stats: TraderStats | null; trades: Trade[] }) {
-  // WR 30 vs 30 previos
   const now = Date.now()
   const d30 = 30 * 24 * 3600 * 1000
   const cerrados = trades.filter((t) => t.resultado !== null)
@@ -255,70 +267,81 @@ function Fila2({ stats, trades }: { stats: TraderStats | null; trades: Trade[] }
   const wrPrev = wr(prev30)
   const delta = wr30 !== null && wrPrev !== null ? wr30 - wrPrev : null
 
-  // R mes actual
   const mesActual = new Date().toISOString().slice(0, 7)
-  const rMes = cerrados
-    .filter((t) => t.created_at.slice(0, 7) === mesActual)
-    .reduce((a, t) => a + (t.r_obtenido ?? 0), 0)
+  const tradesMes = cerrados.filter((t) => t.created_at.slice(0, 7) === mesActual)
+  const rMes = tradesMes.reduce((a, t) => a + (t.r_obtenido ?? 0), 0)
 
   return (
-    <Row>
-      <BigNumber
-        label="Win Rate · últimos 30 días"
+    <div className="grid-dashboard">
+      <StatCard
+        label="Win Rate · 30d"
         value={wr30 !== null ? `${wr30.toFixed(1)}%` : '—'}
-        sub={last30.length > 0 ? `${last30.length} trades` : 'sin datos'}
-        delta={delta !== null ? `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} pts vs anterior` : null}
-        deltaColor={delta === null ? undefined : delta >= 0 ? GREEN : RED}
+        size="sm"
+        icon={<Target size={16} />}
+        delta={delta !== null ? `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} pts vs anterior` : last30.length > 0 ? `${last30.length} trades` : 'sin datos'}
+        trend={delta === null ? 'flat' : delta >= 0 ? 'up' : 'down'}
+        hint={`${last30.length} trades en ventana`}
       />
-      <BigNumber
+      <StatCard
         label="Profit Factor"
         value={stats?.profit_factor != null ? stats.profit_factor.toFixed(2) : '∞'}
-        sub="Ganancia bruta / pérdida bruta"
-        delta={stats?.profit_factor != null && stats.profit_factor > 1.5 ? '✓ saludable' : stats?.profit_factor != null ? 'debajo de 1.5' : null}
-        deltaColor={stats?.profit_factor != null && stats.profit_factor > 1.5 ? GREEN : YELLOW}
+        size="sm"
+        icon={<TrendingUp size={16} />}
+        variant={stats?.profit_factor != null && stats.profit_factor > 1.5 ? 'profit' : 'default'}
+        delta={
+          stats?.profit_factor != null && stats.profit_factor > 1.5
+            ? '✓ saludable'
+            : stats?.profit_factor != null
+              ? 'debajo de 1.5'
+              : 'sin pérdidas'
+        }
+        trend={stats?.profit_factor != null && stats.profit_factor > 1.5 ? 'up' : 'flat'}
       />
-      <BigNumber
-        label={`R acumulado · ${new Date().toLocaleDateString('es-ES', { month: 'long' })}`}
+      <StatCard
+        label={`R · ${new Date().toLocaleDateString('es-ES', { month: 'long' })}`}
         value={`${rMes >= 0 ? '+' : ''}${rMes.toFixed(2)}R`}
-        valueColor={rMes >= 0 ? GREEN : RED}
-        sub={cerrados.filter((t) => t.created_at.slice(0, 7) === mesActual).length + ' trades este mes'}
+        variant={rMes >= 0 ? 'profit' : 'loss'}
+        size="sm"
+        icon={<Activity size={16} />}
+        hint={`${tradesMes.length} trades este mes`}
       />
-      <BigNumber
+      <StatCard
         label="Racha actual"
         value={
           stats?.current_streak
             ? `${stats.current_streak > 0 ? '+' : ''}${stats.current_streak}`
             : '0'
         }
-        valueColor={stats?.current_streak && stats.current_streak > 0 ? GREEN : stats?.current_streak && stats.current_streak < 0 ? RED : undefined}
-        sub={
+        variant={
+          stats?.current_streak && stats.current_streak > 0 ? 'profit'
+          : stats?.current_streak && stats.current_streak < 0 ? 'loss'
+          : 'default'
+        }
+        size="sm"
+        icon={<Flame size={16} />}
+        delta={stats ? `Mejor: ${stats.best_streak}W · Peor: ${stats.worst_streak}L` : null}
+        hint={
           stats?.current_streak && stats.current_streak > 0 ? 'wins consecutivos'
           : stats?.current_streak && stats.current_streak < 0 ? 'losses consecutivos'
-          : 'sin racha'
+          : 'sin racha activa'
         }
-        delta={stats ? `Mejor: ${stats.best_streak}W · Peor: ${stats.worst_streak}L` : null}
       />
-    </Row>
+    </div>
   )
 }
 
-// ─── FILA 3 ───────────────────────────────────────────────────────────────
+// ─── FILA 3: Inteligencia ────────────────────────────────────────────────
 
-function Fila3({ trades, alerts, enoughData }: { trades: Trade[]; alerts: DangerAlert[]; enoughData: boolean }) {
+function Fila3({
+  trades, alerts, enoughData,
+}: { trades: Trade[]; alerts: DangerAlert[]; enoughData: boolean }) {
   if (!enoughData) {
     return (
-      <Row>
-        <Card style={{ gridColumn: 'span 3' }}>
-          <CardLabel>Inteligencia</CardLabel>
-          <div style={{ marginTop: 16, padding: '20px 0', textAlign: 'center' }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>🔒</div>
-            <div style={{ fontSize: 15, fontWeight: 500 }}>Registra {MIN_TRADES_FOR_AI} trades para desbloquear insights de IA</div>
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 6 }}>
-              Tefa necesita muestra mínima para detectar patrones confiables.
-            </div>
-          </div>
-        </Card>
-      </Row>
+      <EmptyState
+        icon={<Lock size={28} />}
+        title={`Registra ${MIN_TRADES_FOR_AI} trades para desbloquear insights de IA`}
+        description="Tefa necesita una muestra mínima para detectar patrones confiables. Seguí cargando trades en sesión."
+      />
     )
   }
 
@@ -333,40 +356,47 @@ function Fila3({ trades, alerts, enoughData }: { trades: Trade[]; alerts: Danger
   const topAlerts = alerts.slice(0, 3)
 
   return (
-    <Row>
+    <div className="grid-dashboard">
       {/* Insights */}
       <Card>
-        <CardLabel>Insights de Tefa</CardLabel>
+        <div className="stat-row">
+          <span className="stat-label">Insights de Tefa</span>
+          <Sparkles size={16} style={{ color: 'var(--accent-primary)' }} />
+        </div>
         {topAlerts.length > 0 ? (
-          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {topAlerts.map((a) => (
-              <AlertItem key={a.code} alert={a} />
-            ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+            {topAlerts.map((a) => <AlertItem key={a.code} alert={a} />)}
           </div>
         ) : (
-          <div style={{ marginTop: 14, fontSize: 13, color: 'var(--text-secondary)' }}>
-            ✓ Sin patrones peligrosos detectados. Seguí así.
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 8 }}>
+            <CheckCircle2 size={16} style={{ color: 'var(--profit)' }} />
+            Sin patrones peligrosos detectados. Seguí así.
           </div>
         )}
       </Card>
 
       {/* Mejor setup */}
       <Card>
-        <CardLabel>Tu mejor setup</CardLabel>
+        <div className="stat-row">
+          <span className="stat-label">Tu mejor setup</span>
+          <TrendingUp size={16} style={{ color: 'var(--profit)' }} />
+        </div>
         {bestTrigger && bestSession ? (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 15, fontWeight: 600 }}>{bestTrigger.segment}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-              en sesión <b>{bestSession.segment}</b>
+          <>
+            <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--text-primary)', marginTop: 4 }}>
+              {bestTrigger.segment}
             </div>
-            <div style={{ marginTop: 14, display: 'flex', gap: 18 }}>
-              <Stat label="WR trigger" value={`${bestTrigger.win_rate.toFixed(1)}%`} color={GREEN} />
-              <Stat label="WR sesión" value={`${bestSession.win_rate.toFixed(1)}%`} color={GREEN} />
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 2 }}>
+              en sesión <b style={{ color: 'var(--text-primary)' }}>{bestSession.segment}</b>
+            </div>
+            <div style={{ display: 'flex', gap: 18, marginTop: 14, flexWrap: 'wrap' }}>
+              <Stat label="WR trigger" value={`${bestTrigger.win_rate.toFixed(1)}%`} color="var(--profit)" />
+              <Stat label="WR sesión" value={`${bestSession.win_rate.toFixed(1)}%`} color="var(--profit)" />
               <Stat label="Promedio" value={`${bestTrigger.avg_r >= 0 ? '+' : ''}${bestTrigger.avg_r.toFixed(2)}R`} />
             </div>
-          </div>
+          </>
         ) : (
-          <div style={{ marginTop: 14, fontSize: 13, color: 'var(--text-secondary)' }}>
+          <div style={{ marginTop: 14, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
             Muestra insuficiente por segmento.
           </div>
         )}
@@ -374,40 +404,49 @@ function Fila3({ trades, alerts, enoughData }: { trades: Trade[]; alerts: Danger
 
       {/* Punto débil */}
       <Card>
-        <CardLabel>Tu punto débil</CardLabel>
+        <div className="stat-row">
+          <span className="stat-label">Tu punto débil</span>
+          <AlertTriangle size={16} style={{ color: 'var(--loss)' }} />
+        </div>
         {worstPattern && worstPattern.total >= 3 ? (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: RED }}>{worstPattern.segment}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+          <>
+            <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--loss)', marginTop: 4 }}>
+              {worstPattern.segment}
+            </div>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 2 }}>
               {worstPattern.total} trades · {worstPattern.wins}W / {worstPattern.losses}L
             </div>
-            <div style={{ marginTop: 14, display: 'flex', gap: 18 }}>
-              <Stat label="WR" value={`${worstPattern.win_rate.toFixed(1)}%`} color={RED} />
-              <Stat label="Promedio" value={`${worstPattern.avg_r >= 0 ? '+' : ''}${worstPattern.avg_r.toFixed(2)}R`} color={RED} />
-              <Stat label="Total" value={`${worstPattern.total_r >= 0 ? '+' : ''}${worstPattern.total_r.toFixed(1)}R`} color={worstPattern.total_r >= 0 ? GREEN : RED} />
+            <div style={{ display: 'flex', gap: 18, marginTop: 14, flexWrap: 'wrap' }}>
+              <Stat label="WR" value={`${worstPattern.win_rate.toFixed(1)}%`} color="var(--loss)" />
+              <Stat label="Promedio" value={`${worstPattern.avg_r >= 0 ? '+' : ''}${worstPattern.avg_r.toFixed(2)}R`} color="var(--loss)" />
+              <Stat label="Total" value={`${worstPattern.total_r >= 0 ? '+' : ''}${worstPattern.total_r.toFixed(1)}R`} color={worstPattern.total_r >= 0 ? 'var(--profit)' : 'var(--loss)'} />
             </div>
-          </div>
+          </>
         ) : (
-          <div style={{ marginTop: 14, fontSize: 13, color: 'var(--text-secondary)' }}>
+          <div style={{ marginTop: 14, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
             Sin muestra suficiente para detectar patrón.
           </div>
         )}
       </Card>
-    </Row>
+    </div>
   )
 }
 
 function AlertItem({ alert }: { alert: DangerAlert }) {
-  const color = alert.severity === 'critical' ? RED : alert.severity === 'warning' ? YELLOW : ACCENT
+  const variant = alert.severity === 'critical' ? 'loss' : alert.severity === 'warning' ? 'neutral' : 'info'
+  const colorVar = alert.severity === 'critical' ? 'var(--loss)' : alert.severity === 'warning' ? 'var(--neutral)' : 'var(--info)'
   return (
     <div style={{
       padding: '10px 12px',
-      borderRadius: 10,
-      border: `1px solid ${color}33`,
-      background: `${color}0A`,
+      borderRadius: 'var(--radius-md)',
+      border: `1px solid ${colorVar}33`,
+      background: `${colorVar}0A`,
     }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color }}>{alert.title}</div>
-      <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 3, lineHeight: 1.45 }}>{alert.detail}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Badge variant={variant} size="sm">{alert.severity}</Badge>
+        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: colorVar }}>{alert.title}</div>
+      </div>
+      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{alert.detail}</div>
     </div>
   )
 }
@@ -415,16 +454,17 @@ function AlertItem({ alert }: { alert: DangerAlert }) {
 function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div>
-      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
-      <div style={{ fontSize: 15, fontWeight: 600, color: color ?? 'var(--text-primary)', marginTop: 2 }}>{value}</div>
+      <div className="stat-label" style={{ fontSize: 10 }}>{label}</div>
+      <div className="tabular-num" style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: color ?? 'var(--text-primary)', marginTop: 4 }}>
+        {value}
+      </div>
     </div>
   )
 }
 
-// ─── FILA 4 — Gráficas ────────────────────────────────────────────────────
+// ─── FILA 4: Gráficas ────────────────────────────────────────────────────
 
 function Fila4({ trades }: { trades: Trade[] }) {
-  // Equity curve: R acumulado en orden cronológico
   const cerrados = trades
     .filter((t) => t.resultado !== null && t.r_obtenido !== null)
     .slice()
@@ -432,14 +472,9 @@ function Fila4({ trades }: { trades: Trade[] }) {
   let acc = 0
   const equityData = cerrados.map((t, i) => {
     acc += t.r_obtenido ?? 0
-    return {
-      n: i + 1,
-      r: parseFloat(acc.toFixed(2)),
-      fecha: t.created_at.slice(0, 10),
-    }
+    return { n: i + 1, r: parseFloat(acc.toFixed(2)) }
   })
 
-  // WR por día de semana
   const dayStats = statsByDayOfWeek(trades).filter((s) => s.total > 0)
   const dayData = dayStats.map((s) => ({
     dia: s.segment.slice(0, 3),
@@ -447,7 +482,6 @@ function Fila4({ trades }: { trades: Trade[] }) {
     trades: s.total,
   }))
 
-  // Distribución por trigger
   const triggerStats = statsByTrigger(trades).filter((s) => s.total > 0)
   const triggerData = triggerStats.map((s) => ({
     trigger: s.segment.split(' ')[0],
@@ -457,28 +491,37 @@ function Fila4({ trades }: { trades: Trade[] }) {
   }))
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16, marginBottom: 24 }}>
-      {/* Equity full-width */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
       <Card>
-        <CardLabel>Equity curve (R acumulado)</CardLabel>
+        <div className="stat-row">
+          <span className="stat-label">Equity curve · R acumulado</span>
+        </div>
         {equityData.length > 0 ? (
-          <div style={{ height: 260, marginTop: 12 }}>
+          <div style={{ height: 280, marginTop: 12 }}>
             <ResponsiveContainer>
               <LineChart data={equityData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke="#ffffff08" vertical={false} />
-                <XAxis dataKey="n" stroke="#666" fontSize={11} />
-                <YAxis stroke="#666" fontSize={11} />
-                <ReferenceLine y={0} stroke="#333" strokeDasharray="2 2" />
+                <CartesianGrid {...gridProps} />
+                <XAxis dataKey="n" {...axisProps} />
+                <YAxis {...axisProps} />
+                <ReferenceLine y={0} stroke={chartTheme.colors.axis} strokeDasharray="3 3" />
                 <Tooltip
-                  contentStyle={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12 }}
-                  labelStyle={{ color: '#999' }}
+                  contentStyle={tooltipStyle}
+                  labelStyle={tooltipLabelStyle}
+                  itemStyle={tooltipItemStyle}
                   formatter={(v) => {
                     const n = Number(v)
                     return [`${n >= 0 ? '+' : ''}${n}R`, 'Acumulado']
                   }}
                   labelFormatter={(n) => `Trade #${n}`}
                 />
-                <Line type="monotone" dataKey="r" stroke={ACCENT} strokeWidth={2} dot={false} />
+                <Line
+                  type="monotone"
+                  dataKey="r"
+                  stroke={chartTheme.colors.accent}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4, fill: chartTheme.colors.accent }}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -487,26 +530,29 @@ function Fila4({ trades }: { trades: Trade[] }) {
         )}
       </Card>
 
-      {/* Dos charts lado a lado */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--space-5)' }}>
         <Card>
-          <CardLabel>Win rate por día de la semana</CardLabel>
+          <div className="stat-row">
+            <span className="stat-label">Win rate por día de la semana</span>
+          </div>
           {dayData.length > 0 ? (
             <div style={{ height: 240, marginTop: 12 }}>
               <ResponsiveContainer>
                 <BarChart data={dayData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid stroke="#ffffff08" vertical={false} />
-                  <XAxis dataKey="dia" stroke="#666" fontSize={11} />
-                  <YAxis stroke="#666" fontSize={11} domain={[0, 100]} />
+                  <CartesianGrid {...gridProps} />
+                  <XAxis dataKey="dia" {...axisProps} />
+                  <YAxis {...axisProps} domain={[0, 100]} />
                   <Tooltip
-                    contentStyle={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12 }}
-                    labelStyle={{ color: '#999' }}
+                    contentStyle={tooltipStyle}
+                    labelStyle={tooltipLabelStyle}
+                    itemStyle={tooltipItemStyle}
+                    cursor={{ fill: 'rgba(255,255,255,0.03)' }}
                     formatter={(v, _k, item) => {
-                      const trades = (item as { payload?: { trades?: number } })?.payload?.trades ?? 0
-                      return [`${v}% (${trades} trades)`, 'WR']
+                      const t = (item as { payload?: { trades?: number } })?.payload?.trades ?? 0
+                      return [`${v}% (${t} trades)`, 'WR']
                     }}
                   />
-                  <Bar dataKey="wr" fill={ACCENT} radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="wr" fill={chartTheme.colors.accent} radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -516,21 +562,25 @@ function Fila4({ trades }: { trades: Trade[] }) {
         </Card>
 
         <Card>
-          <CardLabel>Resultados por trigger</CardLabel>
+          <div className="stat-row">
+            <span className="stat-label">Resultados por trigger</span>
+          </div>
           {triggerData.length > 0 ? (
             <div style={{ height: 240, marginTop: 12 }}>
               <ResponsiveContainer>
                 <BarChart data={triggerData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid stroke="#ffffff08" vertical={false} />
-                  <XAxis dataKey="trigger" stroke="#666" fontSize={11} />
-                  <YAxis stroke="#666" fontSize={11} allowDecimals={false} />
+                  <CartesianGrid {...gridProps} />
+                  <XAxis dataKey="trigger" {...axisProps} />
+                  <YAxis {...axisProps} allowDecimals={false} />
                   <Tooltip
-                    contentStyle={{ background: '#111', border: '1px solid #2a2a2a', borderRadius: 8, fontSize: 12 }}
-                    labelStyle={{ color: '#999' }}
+                    contentStyle={tooltipStyle}
+                    labelStyle={tooltipLabelStyle}
+                    itemStyle={tooltipItemStyle}
+                    cursor={{ fill: 'rgba(255,255,255,0.03)' }}
                   />
-                  <Bar dataKey="wins" stackId="a" fill={GREEN} />
-                  <Bar dataKey="breakevens" stackId="a" fill="#666" />
-                  <Bar dataKey="losses" stackId="a" fill={RED} radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="wins"       stackId="a" fill={chartTheme.colors.profit} />
+                  <Bar dataKey="breakevens" stackId="a" fill={chartTheme.colors.textMuted} />
+                  <Bar dataKey="losses"     stackId="a" fill={chartTheme.colors.loss} radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -545,70 +595,11 @@ function Fila4({ trades }: { trades: Trade[] }) {
 
 function EmptyChart() {
   return (
-    <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+    <div style={{
+      height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)',
+    }}>
       Sin datos suficientes
     </div>
-  )
-}
-
-// ─── Primitivas UI ────────────────────────────────────────────────────────
-
-function Row({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-      gap: 16,
-      marginBottom: 16,
-    }}>
-      {children}
-    </div>
-  )
-}
-
-function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <div className="card" style={style}>{children}</div>
-}
-
-function CardLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{
-      fontSize: 11,
-      color: 'var(--text-tertiary)',
-      textTransform: 'uppercase',
-      letterSpacing: 0.8,
-      fontWeight: 600,
-    }}>
-      {children}
-    </div>
-  )
-}
-
-function BigNumber({
-  label, value, sub, delta, deltaColor, valueColor,
-}: {
-  label: string
-  value: string
-  sub?: string
-  delta?: string | null
-  deltaColor?: string
-  valueColor?: string
-}) {
-  return (
-    <Card>
-      <CardLabel>{label}</CardLabel>
-      <div style={{
-        fontSize: 32, fontWeight: 700, marginTop: 10, letterSpacing: -1,
-        color: valueColor ?? 'var(--text-primary)',
-      }}>
-        {value}
-      </div>
-      {sub && <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>{sub}</div>}
-      {delta && (
-        <div style={{ fontSize: 11.5, color: deltaColor ?? 'var(--text-secondary)', marginTop: 8, fontWeight: 500 }}>
-          {delta}
-        </div>
-      )}
-    </Card>
   )
 }

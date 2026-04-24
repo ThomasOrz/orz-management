@@ -1,18 +1,30 @@
 'use client'
 
+// ─────────────────────────────────────────────────────────────────────────
+// app/chat/page.tsx — Chat Mentor (rediseñado Iteración 1.5)
+// ─────────────────────────────────────────────────────────────────────────
+
 import { useState, useRef, useEffect } from 'react'
+import { Send, Sparkles } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { Card } from '@/components/ui/Card'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { Button } from '@/components/ui/Button'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 interface Mensaje {
   rol: 'usuario' | 'tefa'
   texto: string
 }
 
+const SALUDO_INICIAL: Mensaje = {
+  rol: 'tefa',
+  texto: '¡Hola! Soy Tefa, tu mentor de trading. ¿En qué puedo ayudarte hoy?',
+}
+
 export default function ChatPage() {
   const supabase = createClient()
-  const [mensajes, setMensajes] = useState<Mensaje[]>([
-    { rol: 'tefa', texto: '¡Hola! Soy Tefa, tu mentor de trading. ¿En qué puedo ayudarte hoy?' },
-  ])
+  const [mensajes, setMensajes] = useState<Mensaje[]>([SALUDO_INICIAL])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -37,14 +49,10 @@ export default function ChatPage() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error('Sin sesión activa')
 
-      // Enviar últimos 20 mensajes como historial (excluye el saludo inicial automático)
-      // El EF espera roles 'user' | 'assistant' (no 'usuario' | 'tefa')
-      const historial = mensajes
-        .slice(-20)
-        .map((m) => ({
-          role: m.rol === 'usuario' ? 'user' : 'assistant',
-          content: m.texto,
-        }))
+      const historial = mensajes.slice(-20).map((m) => ({
+        role: m.rol === 'usuario' ? 'user' : 'assistant',
+        content: m.texto,
+      }))
 
       const res = await fetch(
         'https://ymosnytxyveedpsubdke.supabase.co/functions/v1/chat-mentor',
@@ -84,109 +92,177 @@ export default function ChatPage() {
     }
   }
 
+  const sinHistorial = mensajes.length === 1 && mensajes[0].rol === 'tefa'
+
   return (
-    <div className="max-w-3xl mx-auto flex flex-col h-[calc(100vh-4rem)]">
-      {/* Header */}
-      <div className="mb-4 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: '#1A9BD720' }}
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="#1A9BD7" strokeWidth={1.8}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-white">Chat Mentor</h1>
-            <p className="text-gray-500 text-xs">Tefa — IA de ORZ Academy</p>
-          </div>
+    <div style={{ maxWidth: 880, margin: '0 auto', display: 'flex', flexDirection: 'column', height: 'calc(100vh - var(--space-12))' }}>
+      <PageHeader
+        title="Chat Mentor"
+        subtitle="Tefa — IA de ORZ Academy"
+      />
+
+      <Card padding="none" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+        {/* Mensajes */}
+        <div style={{
+          flex: 1, overflowY: 'auto',
+          padding: 'var(--space-6)',
+          display: 'flex', flexDirection: 'column', gap: 'var(--space-4)',
+        }}>
+          {sinHistorial ? (
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <EmptyState
+                icon={<Sparkles size={28} />}
+                title="Empezá tu conversación con Tefa"
+                description="Preguntale sobre tu metodología, tus últimos trades, gestión de riesgo o psicología. Está entrenada con tu data."
+              />
+            </div>
+          ) : (
+            mensajes.map((m, i) => <Burbuja key={i} mensaje={m} />)
+          )}
+
+          {loading && <BurbujaLoading />}
+
+          {error && (
+            <div style={{
+              padding: '10px 14px',
+              background: 'var(--loss-bg)',
+              border: '1px solid var(--loss)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--loss)',
+              fontSize: 'var(--text-xs)',
+              alignSelf: 'center',
+              maxWidth: '80%',
+              textAlign: 'center',
+            }}>
+              {error}
+            </div>
+          )}
+
+          <div ref={bottomRef} />
         </div>
-      </div>
 
-      {/* Mensajes */}
-      <div
-        className="flex-1 overflow-y-auto rounded-2xl p-5 space-y-4 mb-4"
-        style={{ backgroundColor: '#111111', border: '1px solid #222222' }}
-      >
-        {mensajes.map((m, i) => (
-          <div key={i} className={`flex ${m.rol === 'usuario' ? 'justify-end' : 'justify-start'}`}>
-            {m.rol === 'tefa' && (
-              <div
-                className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mr-2 mt-0.5"
-                style={{ backgroundColor: '#1A9BD720' }}
-              >
-                <span className="text-xs font-bold" style={{ color: '#1A9BD7' }}>T</span>
-              </div>
-            )}
-            <div
-              className="max-w-[78%] px-4 py-3 rounded-2xl text-sm leading-relaxed"
-              style={
-                m.rol === 'usuario'
-                  ? { backgroundColor: '#1A9BD7', color: '#fff' }
-                  : { backgroundColor: '#1a1a1a', color: '#d1d5db', border: '1px solid #2a2a2a' }
-              }
-            >
-              {m.texto}
-            </div>
-          </div>
-        ))}
-
-        {loading && (
-          <div className="flex justify-start">
-            <div
-              className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mr-2 mt-0.5"
-              style={{ backgroundColor: '#1A9BD720' }}
-            >
-              <span className="text-xs font-bold" style={{ color: '#1A9BD7' }}>T</span>
-            </div>
-            <div
-              className="px-4 py-3 rounded-2xl flex gap-1 items-center"
-              style={{ backgroundColor: '#1a1a1a', border: '1px solid #2a2a2a' }}
-            >
-              {[0, 1, 2].map(i => (
-                <span
-                  key={i}
-                  className="w-1.5 h-1.5 rounded-full animate-bounce"
-                  style={{ backgroundColor: '#555', animationDelay: `${i * 150}ms` }}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <p className="text-red-400 text-xs text-center bg-red-400/10 rounded-lg px-4 py-2">{error}</p>
-        )}
-
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Input */}
-      <div
-        className="flex-shrink-0 rounded-2xl p-3 flex gap-3 items-end"
-        style={{ backgroundColor: '#111111', border: '1px solid #222222' }}
-      >
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Escribe tu pregunta... (Enter para enviar, Shift+Enter para nueva línea)"
-          rows={1}
-          className="flex-1 bg-transparent text-white text-sm outline-none resize-none placeholder-gray-600 py-2 px-1"
-          style={{ maxHeight: '120px' }}
-        />
-        <button
-          onClick={() => handleEnviar()}
-          disabled={loading || !input.trim()}
-          className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-opacity disabled:opacity-40"
-          style={{ backgroundColor: '#1A9BD7' }}
+        {/* Input */}
+        <form
+          onSubmit={handleEnviar}
+          style={{
+            display: 'flex', gap: 'var(--space-3)', alignItems: 'flex-end',
+            padding: 'var(--space-4) var(--space-5)',
+            borderTop: '1px solid var(--border-subtle)',
+            background: 'var(--bg-elevated)',
+          }}
         >
-          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" />
-          </svg>
-        </button>
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Escribe tu pregunta… (Enter para enviar, Shift+Enter para nueva línea)"
+            rows={1}
+            className="input-pro"
+            style={{
+              flex: 1, resize: 'none', maxHeight: 140, minHeight: 44,
+              fontFamily: 'var(--font-family)', lineHeight: 1.5,
+            }}
+            aria-label="Mensaje para Tefa"
+          />
+          <Button
+            type="submit"
+            variant="primary"
+            size="md"
+            loading={loading}
+            disabled={!input.trim() && !loading}
+            icon={<Send size={14} />}
+            aria-label="Enviar mensaje"
+          />
+        </form>
+      </Card>
+    </div>
+  )
+}
+
+// ─── Burbujas ─────────────────────────────────────────────────────────────
+
+function Avatar() {
+  return (
+    <div style={{
+      width: 28, height: 28, borderRadius: 'var(--radius-md)',
+      background: 'var(--accent-primary-bg)',
+      color: 'var(--accent-primary)',
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      flexShrink: 0,
+      fontSize: 11, fontWeight: 700,
+    }}>
+      T
+    </div>
+  )
+}
+
+function Burbuja({ mensaje }: { mensaje: Mensaje }) {
+  const esUsuario = mensaje.rol === 'usuario'
+  return (
+    <div style={{
+      display: 'flex',
+      justifyContent: esUsuario ? 'flex-end' : 'flex-start',
+      alignItems: 'flex-start',
+      gap: 'var(--space-2)',
+    }}>
+      {!esUsuario && <Avatar />}
+      <div style={{
+        maxWidth: '76%',
+        padding: '10px 14px',
+        borderRadius: 'var(--radius-lg)',
+        fontSize: 'var(--text-sm)',
+        lineHeight: 1.55,
+        whiteSpace: 'pre-wrap',
+        ...(esUsuario
+          ? {
+              background: 'var(--accent-primary)',
+              color: 'var(--bg-base)',
+              borderTopRightRadius: 4,
+              fontWeight: 500,
+            }
+          : {
+              background: 'var(--bg-overlay)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border-subtle)',
+              borderTopLeftRadius: 4,
+            }),
+      }}>
+        {mensaje.texto}
+      </div>
+    </div>
+  )
+}
+
+function BurbujaLoading() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)' }}>
+      <Avatar />
+      <div style={{
+        padding: '12px 16px',
+        borderRadius: 'var(--radius-lg)',
+        borderTopLeftRadius: 4,
+        background: 'var(--bg-overlay)',
+        border: '1px solid var(--border-subtle)',
+        display: 'flex', gap: 4, alignItems: 'center',
+      }}>
+        {[0, 1, 2].map(i => (
+          <span
+            key={i}
+            style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: 'var(--text-tertiary)',
+              animation: 'bounce 1.2s ease-in-out infinite',
+              animationDelay: `${i * 150}ms`,
+            }}
+          />
+        ))}
+        <style jsx>{`
+          @keyframes bounce {
+            0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
+            40% { opacity: 1; transform: translateY(-4px); }
+          }
+        `}</style>
       </div>
     </div>
   )
