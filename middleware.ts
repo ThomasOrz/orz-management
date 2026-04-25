@@ -1,6 +1,8 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+const PUBLIC_ROUTES = ['/login', '/registro', '/auth/callback', '/auth/reset-password']
+
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
@@ -27,18 +29,29 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
+  const isPublic = PUBLIC_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`))
 
-  // Rutas públicas
-  if (pathname === '/login') {
-    if (user) {
-      return NextResponse.redirect(new URL('/briefing', request.url))
-    }
-    return supabaseResponse
+  // Sin sesión → solo rutas públicas
+  if (!user && !isPublic) {
+    return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Protege todas las rutas privadas
-  if (!user) {
-    return NextResponse.redirect(new URL('/login', request.url))
+  // Con sesión → no entrar a /login ni /registro
+  if (user && (pathname === '/login' || pathname === '/registro')) {
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
+  // /admin/* solo para admins
+  if (user && pathname.startsWith('/admin')) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (profile?.role !== 'admin') {
+      return NextResponse.redirect(new URL('/', request.url))
+    }
   }
 
   return supabaseResponse
