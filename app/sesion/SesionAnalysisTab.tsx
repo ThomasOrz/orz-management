@@ -1,22 +1,23 @@
 'use client'
 
 // ─────────────────────────────────────────────────────────────────────────
-// app/sesion/SesionAnalysisTab.tsx — Bitácora inteligente (Iter 2)
+// app/sesion/SesionAnalysisTab.tsx — Bitácora inteligente Híbrido (Iter 3)
 // ─────────────────────────────────────────────────────────────────────────
-// Tres preguntas operativas: ¿Cómo gano? ¿Cómo pierdo? Estado financiero.
+// Sección A · ¿Cómo ganás dinero?  → EdgeCallout + Top3 listas
+// Sección B · ¿Cómo perdés dinero? → Card roja + Top3 perdedoras
+// Sección C · Estado financiero    → 4 KpiCards + StatCardLarge sparkline + Pie
 // ─────────────────────────────────────────────────────────────────────────
 
 import {
-  BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  CartesianGrid, Legend,
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
-import { Lock, TrendingUp, TrendingDown, Wallet } from 'lucide-react'
-import { Card } from '@/components/ui/Card'
-import { StatCard } from '@/components/ui/StatCard'
-import { Badge } from '@/components/ui/Badge'
+import { Lock, TrendingUp, TrendingDown } from 'lucide-react'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { KpiCard } from '@/components/ui/KpiCard'
+import { StatCardLarge } from '@/components/ui/StatCardLarge'
+import { EdgeCallout } from '@/components/ui/EdgeCallout'
 import {
-  chartTheme, axisProps, gridProps, tooltipStyle, tooltipLabelStyle, tooltipItemStyle,
+  chartTheme, tooltipStyle, tooltipItemStyle,
 } from '@/components/ui/chart-theme'
 import {
   statsBySession, statsByTrigger, statsByEmotion,
@@ -44,7 +45,7 @@ export default function SesionAnalysisTab({ trades }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       <ComoGano trades={trades} />
       <ComoPierdo trades={trades} />
-      <EstadoFinanciero trades={trades} cerrados={cerrados} />
+      <EstadoFinanciero cerrados={cerrados} />
     </div>
   )
 }
@@ -63,7 +64,13 @@ function bottomByAvgR(stats: SegmentStats[], minTotal = 3): SegmentStats | null 
   return [...filt].sort((a, b) => a.avg_r - b.avg_r)[0]
 }
 
-// ─── Sección 1: ¿Cómo gano? ───────────────────────────────────────────────
+const sectionTitle: React.CSSProperties = {
+  fontSize: 13, fontWeight: 600, color: 'var(--text-primary)',
+  margin: 0, marginBottom: 'var(--space-3)',
+  display: 'flex', alignItems: 'center', gap: 8,
+}
+
+// ─── Sección A: ¿Cómo gano? ───────────────────────────────────────────────
 
 function ComoGano({ trades }: { trades: Trade[] }) {
   const sessions = statsBySession(trades)
@@ -84,140 +91,129 @@ function ComoGano({ trades }: { trades: Trade[] }) {
     : []
   const winsCombo = winningCombos.filter((t) => t.resultado === 'Win').length
   const decisivosCombo = winningCombos.filter((t) => t.resultado === 'Win' || t.resultado === 'Loss').length
-  const wrCombo = decisivosCombo > 0 ? (winsCombo / decisivosCombo) * 100 : null
+  const wrCombo = decisivosCombo > 0 ? (winsCombo / decisivosCombo) * 100 : (bestTrigger?.win_rate ?? 0)
   const avgRCombo = winningCombos.length > 0
     ? winningCombos.reduce((a, t) => a + (t.r_obtenido ?? 0), 0) / winningCombos.length
-    : null
+    : (bestTrigger?.avg_r ?? 0)
 
   const top3Triggers = [...triggers].filter((s) => s.total >= 3).sort((a, b) => b.win_rate - a.win_rate).slice(0, 3)
   const top3Sessions = [...sessions].filter((s) => s.total >= 3).sort((a, b) => b.win_rate - a.win_rate).slice(0, 3)
 
+  const segments = [bestTrigger?.segment, bestSession?.segment, bestEmotion?.segment].filter(Boolean) as string[]
+  const sample = winningCombos.length || (bestTrigger?.total ?? 0)
+
   return (
-    <Card>
-      <div className="stat-row">
-        <span className="stat-label">¿Cómo ganás dinero?</span>
-        <TrendingUp size={16} style={{ color: 'var(--profit)' }} />
-      </div>
+    <div>
+      <h2 style={sectionTitle}>
+        <TrendingUp size={14} style={{ color: 'var(--profit)' }} />
+        ¿Cómo ganás dinero?
+      </h2>
 
       {bestTrigger && bestSession && bestEmotion ? (
-        <>
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.6, marginTop: 4 }}>
-            Cuando operás <b style={{ color: 'var(--text-primary)' }}>{bestTrigger.segment}</b> en{' '}
-            <b style={{ color: 'var(--text-primary)' }}>{bestSession.segment}</b> con emoción{' '}
-            <b style={{ color: 'var(--text-primary)' }}>{bestEmotion.segment}</b>,
-            ganás el <b className="profit-text">{bestTrigger.win_rate.toFixed(1)}%</b> con promedio{' '}
-            <b className="profit-text">{bestTrigger.avg_r >= 0 ? '+' : ''}{bestTrigger.avg_r.toFixed(2)}R</b>.
-          </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 'var(--space-4)' }}>
+          <EdgeCallout
+            segments={segments}
+            winRate={wrCombo}
+            avgR={avgRCombo}
+            sampleSize={sample}
+            caption={
+              winningCombos.length >= 2
+                ? `Combinación exacta repetida ${winningCombos.length} veces`
+                : 'Mejor segmento individual detectado'
+            }
+          />
 
-          {wrCombo !== null && winningCombos.length >= 2 && (
-            <div style={{
-              marginTop: 12, padding: '10px 14px',
-              borderRadius: 'var(--radius-md)',
-              background: 'var(--profit-bg)', border: '1px solid rgba(0,230,118,0.2)',
-            }}>
-              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 4 }}>
-                COMBINACIÓN GANADORA · {winningCombos.length} trades
-              </div>
-              <div className="tabular-num" style={{ fontSize: 'var(--text-base)', color: 'var(--profit)', fontWeight: 600 }}>
-                {wrCombo.toFixed(1)}% WR · {avgRCombo !== null ? `${avgRCombo >= 0 ? '+' : ''}${avgRCombo.toFixed(2)}R` : '—'} promedio
-              </div>
-            </div>
-          )}
-
-          <div className="divider" />
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 'var(--space-5)' }}>
-            <BarStats title="Top triggers · WR" stats={top3Triggers} color="var(--profit)" />
-            <BarStats title="Top sesiones · WR" stats={top3Sessions} color="var(--accent-primary)" />
+          <div style={{
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 14, padding: 18,
+            display: 'flex', flexDirection: 'column', gap: 16,
+          }}>
+            <RankList title="Top triggers" stats={top3Triggers} color="var(--profit)" metric="win_rate" />
+            <RankList title="Top sesiones" stats={top3Sessions} color="var(--accent-primary)" metric="win_rate" />
           </div>
-        </>
+        </div>
       ) : (
-        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 8 }}>
-          Sin combinación dominante detectada (cada categoría necesita ≥3 trades).
-        </p>
+        <NotEnoughCard text="Sin combinación dominante detectada (cada categoría necesita ≥3 trades)." />
       )}
-    </Card>
+    </div>
   )
 }
 
-// ─── Sección 2: ¿Cómo pierdo? ─────────────────────────────────────────────
+// ─── Sección B: ¿Cómo pierdo? ─────────────────────────────────────────────
 
 function ComoPierdo({ trades }: { trades: Trade[] }) {
-  const sessions = statsBySession(trades)
   const triggers = statsByTrigger(trades)
   const emotions = statsByEmotion(trades)
 
   const worstEmotion = bottomByAvgR(emotions)
   const worstTrigger = bottomByAvgR(triggers)
-  const worstSession = bottomByAvgR(sessions)
 
   const top3LossEmotions = [...emotions].filter((s) => s.total >= 3).sort((a, b) => a.avg_r - b.avg_r).slice(0, 3)
   const top3LossTriggers = [...triggers].filter((s) => s.total >= 3).sort((a, b) => a.avg_r - b.avg_r).slice(0, 3)
 
   return (
-    <Card>
-      <div className="stat-row">
-        <span className="stat-label">¿Cómo perdés dinero?</span>
-        <TrendingDown size={16} style={{ color: 'var(--loss)' }} />
-      </div>
+    <div>
+      <h2 style={sectionTitle}>
+        <TrendingDown size={14} style={{ color: 'var(--loss)' }} />
+        ¿Cómo perdés dinero?
+      </h2>
 
-      {worstEmotion && worstTrigger && worstSession ? (
-        <>
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.6, marginTop: 4 }}>
-            Tus peores trades ocurren cuando operás con emoción{' '}
-            <b style={{ color: 'var(--loss)' }}>{worstEmotion.segment}</b>, usando{' '}
-            <b style={{ color: 'var(--loss)' }}>{worstTrigger.segment}</b> en sesión{' '}
-            <b style={{ color: 'var(--loss)' }}>{worstSession.segment}</b>. Evitalo.
+      {worstEmotion && worstTrigger ? (
+        <div style={{
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-subtle)',
+          borderLeft: '3px solid var(--loss)',
+          borderRadius: 14, padding: 18,
+        }}>
+          <p style={{
+            fontSize: 13, color: 'var(--text-secondary)',
+            lineHeight: 1.6, margin: 0, marginBottom: 16,
+          }}>
+            Tus peores trades aparecen con emoción{' '}
+            <b style={{ color: 'var(--loss)' }}>{worstEmotion.segment}</b> y trigger{' '}
+            <b style={{ color: 'var(--loss)' }}>{worstTrigger.segment}</b>.{' '}
+            <span style={{ color: 'var(--text-tertiary)' }}>R prom.{' '}
+              <span className="tabular-num" style={{ color: 'var(--loss)', fontFamily: 'var(--font-mono)' }}>
+                {worstEmotion.avg_r >= 0 ? '+' : ''}{worstEmotion.avg_r.toFixed(2)}R
+              </span>{' '}
+              · WR{' '}
+              <span className="tabular-num" style={{ color: 'var(--loss)', fontFamily: 'var(--font-mono)' }}>
+                {worstEmotion.win_rate.toFixed(0)}%
+              </span>.
+            </span>
           </p>
 
-          <div style={{
-            marginTop: 12, padding: '10px 14px',
-            borderRadius: 'var(--radius-md)',
-            background: 'var(--loss-bg)', border: '1px solid rgba(255,59,74,0.2)',
-          }}>
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginBottom: 4 }}>
-              EMOCIÓN MÁS COSTOSA · {worstEmotion.total} trades
-            </div>
-            <div className="tabular-num" style={{ fontSize: 'var(--text-base)', color: 'var(--loss)', fontWeight: 600 }}>
-              {worstEmotion.win_rate.toFixed(1)}% WR · {worstEmotion.avg_r >= 0 ? '+' : ''}{worstEmotion.avg_r.toFixed(2)}R promedio
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 24 }}>
+            <RankList title="Emociones que más pierden" stats={top3LossEmotions} color="var(--loss)" metric="avg_r" />
+            <RankList title="Triggers que más pierden" stats={top3LossTriggers} color="var(--loss)" metric="avg_r" />
           </div>
-
-          <div className="divider" />
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 'var(--space-5)' }}>
-            <BarStats title="Emociones que más pierden · R prom." stats={top3LossEmotions} color="var(--loss)" metric="avg_r" />
-            <BarStats title="Triggers que más pierden · R prom." stats={top3LossTriggers} color="var(--loss)" metric="avg_r" />
-          </div>
-        </>
+        </div>
       ) : (
-        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 8 }}>
-          Sin patrón perdedor claro (cada categoría necesita ≥3 trades).
-        </p>
+        <NotEnoughCard text="Sin patrón perdedor claro (cada categoría necesita ≥3 trades)." />
       )}
-    </Card>
+    </div>
   )
 }
 
-// ─── Sección 3: Estado financiero ─────────────────────────────────────────
+// ─── Sección C: Estado financiero ─────────────────────────────────────────
 
-function EstadoFinanciero({ trades, cerrados }: { trades: Trade[]; cerrados: Trade[] }) {
+function EstadoFinanciero({ cerrados }: { cerrados: Trade[] }) {
   const totalR = cerrados.reduce((a, t) => a + (t.r_obtenido ?? 0), 0)
+  const promR = cerrados.length > 0 ? totalR / cerrados.length : 0
+  const rs = cerrados.map((t) => t.r_obtenido ?? 0)
+  const mejor = rs.length > 0 ? Math.max(...rs) : 0
+  const peor = rs.length > 0 ? Math.min(...rs) : 0
 
-  const capitales = cerrados.map((t) => t.capital_cuenta).filter((c): c is number => c !== null)
-  const capitalActual = capitales.length > 0 ? capitales[capitales.length - 1] : null
+  // Sparkline acumulado
+  const sortedAsc = [...cerrados].sort((a, b) => a.created_at.localeCompare(b.created_at))
+  let acc = 0
+  const sparkData = sortedAsc.map((t) => {
+    acc += t.r_obtenido ?? 0
+    return parseFloat(acc.toFixed(2))
+  })
 
-  // Distribución mensual
-  const porMes = new Map<string, number>()
-  for (const t of cerrados) {
-    const mes = t.created_at.slice(0, 7)
-    porMes.set(mes, (porMes.get(mes) ?? 0) + (t.r_obtenido ?? 0))
-  }
-  const mesesData = Array.from(porMes.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .slice(-12)
-    .map(([mes, r]) => ({ mes: mes.slice(5), r: parseFloat(r.toFixed(2)) }))
-
+  // Pie W/L/BE
   const wins = cerrados.filter((t) => t.resultado === 'Win').length
   const losses = cerrados.filter((t) => t.resultado === 'Loss').length
   const breakevens = cerrados.filter((t) => t.resultado === 'Breakeven').length
@@ -228,81 +224,70 @@ function EstadoFinanciero({ trades, cerrados }: { trades: Trade[]; cerrados: Tra
   ].filter((d) => d.value > 0)
 
   return (
-    <>
-      <div className="grid-dashboard">
-        <StatCard
-          label="R acumulado total"
+    <div>
+      <h2 style={sectionTitle}>
+        <TrendingUp size={14} style={{ color: 'var(--accent-primary)' }} />
+        Estado financiero
+      </h2>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: 'var(--space-3)',
+        marginBottom: 'var(--space-4)',
+      }}>
+        <KpiCard
+          label="R Total"
           value={`${totalR >= 0 ? '+' : ''}${totalR.toFixed(2)}R`}
-          variant={totalR >= 0 ? 'profit' : 'loss'}
-          size="sm"
-          icon={<Wallet size={16} />}
-          hint={`${cerrados.length} trades cerrados`}
+          delta={`${cerrados.length} trades`}
+          trend={totalR >= 0 ? 'success' : 'danger'}
         />
-        {capitalActual !== null && (
-          <StatCard
-            label="Capital simulado"
-            value={`$${capitalActual.toLocaleString('es-MX')}`}
-            size="sm"
-            icon={<Wallet size={16} />}
-            hint="Último capital registrado"
-          />
-        )}
-        <StatCard
-          label="Disciplina"
-          value={`${wins + losses + breakevens > 0 ? ((wins / (wins + losses + breakevens)) * 100).toFixed(0) : 0}%`}
-          size="sm"
-          hint={`${wins}W · ${losses}L · ${breakevens}BE`}
+        <KpiCard
+          label="R Promedio"
+          value={`${promR >= 0 ? '+' : ''}${promR.toFixed(2)}R`}
+          trend={promR >= 0 ? 'success' : 'danger'}
+        />
+        <KpiCard
+          label="Mejor trade"
+          value={`+${mejor.toFixed(2)}R`}
+          trend="success"
+        />
+        <KpiCard
+          label="Peor trade"
+          value={`${peor.toFixed(2)}R`}
+          trend="danger"
         />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--space-5)' }}>
-        <Card>
-          <div className="stat-row">
-            <span className="stat-label">Distribución mensual · R</span>
-          </div>
-          {mesesData.length > 0 ? (
-            <div style={{ height: 240, marginTop: 12 }}>
-              <ResponsiveContainer>
-                <BarChart data={mesesData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid {...gridProps} />
-                  <XAxis dataKey="mes" {...axisProps} />
-                  <YAxis {...axisProps} />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    labelStyle={tooltipLabelStyle}
-                    itemStyle={tooltipItemStyle}
-                    cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                    formatter={(v) => [`${Number(v) >= 0 ? '+' : ''}${v}R`, 'R mes']}
-                  />
-                  <Bar dataKey="r" radius={[6, 6, 0, 0]}>
-                    {mesesData.map((d, i) => (
-                      <Cell key={i} fill={d.r >= 0 ? chartTheme.colors.profit : chartTheme.colors.loss} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)' }}>
-              Sin datos
-            </div>
-          )}
-        </Card>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 'var(--space-4)' }}>
+        <StatCardLarge
+          label="Evolución R acumulado"
+          value={`${totalR >= 0 ? '+' : ''}${totalR.toFixed(2)}R`}
+          delta={`${cerrados.length} trades`}
+          trend={totalR >= 0 ? 'success' : 'danger'}
+          sparklineData={sparkData}
+          caption={`Desde ${sortedAsc[0]?.created_at.slice(0, 10) ?? '—'} hasta hoy`}
+        />
 
-        <Card>
-          <div className="stat-row">
-            <span className="stat-label">Distribución por resultado</span>
+        <div style={{
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 14, padding: 18,
+          minHeight: 200, display: 'flex', flexDirection: 'column',
+        }}>
+          <div style={{ fontSize: 12, color: '#888', fontWeight: 500, marginBottom: 8 }}>
+            Distribución por resultado
           </div>
           {pieData.length > 0 ? (
-            <div style={{ height: 240, marginTop: 12 }}>
+            <div style={{ flex: 1, minHeight: 180 }}>
               <ResponsiveContainer>
                 <PieChart>
                   <Pie
                     data={pieData}
                     dataKey="value"
                     nameKey="name"
-                    innerRadius={50}
-                    outerRadius={85}
+                    innerRadius={42}
+                    outerRadius={72}
                     paddingAngle={2}
                   >
                     {pieData.map((d, i) => <Cell key={i} fill={d.color} stroke="var(--bg-surface)" strokeWidth={2} />)}
@@ -311,59 +296,91 @@ function EstadoFinanciero({ trades, cerrados }: { trades: Trade[]; cerrados: Tra
                   <Legend
                     verticalAlign="bottom"
                     iconType="circle"
-                    wrapperStyle={{ fontSize: 12, color: chartTheme.colors.text }}
+                    wrapperStyle={{ fontSize: 11, color: chartTheme.colors.text }}
                   />
                 </PieChart>
               </ResponsiveContainer>
             </div>
           ) : (
-            <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)' }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
               Sin datos
             </div>
           )}
-        </Card>
+        </div>
       </div>
-    </>
+    </div>
   )
 }
 
-// ─── Bar list helper ──────────────────────────────────────────────────────
+// ─── Lista ranqueada compacta (reemplaza BarStats) ───────────────────────
 
-function BarStats({
-  title, stats, color, metric = 'win_rate',
-}: { title: string; stats: SegmentStats[]; color: string; metric?: 'win_rate' | 'avg_r' }) {
-  if (!stats.length) return null
-  const max = metric === 'win_rate' ? 100 : Math.max(...stats.map((s) => Math.abs(s[metric])), 1)
-
+function RankList({
+  title, stats, color, metric,
+}: { title: string; stats: SegmentStats[]; color: string; metric: 'win_rate' | 'avg_r' }) {
+  if (!stats.length) {
+    return (
+      <div>
+        <div style={listTitle}>{title}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 6 }}>Sin muestra suficiente.</div>
+      </div>
+    )
+  }
   return (
     <div>
-      <div className="stat-label" style={{ marginBottom: 10 }}>{title}</div>
+      <div style={listTitle}>{title}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {stats.map((s) => {
           const v = s[metric]
-          const pct = metric === 'win_rate' ? v : Math.min((Math.abs(v) / max) * 100, 100)
+          const fmt = metric === 'win_rate'
+            ? `${v.toFixed(0)}%`
+            : `${v >= 0 ? '+' : ''}${v.toFixed(2)}R`
           return (
-            <div key={s.segment}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-xs)', marginBottom: 4 }}>
-                <span style={{ color: 'var(--text-secondary)' }}>{s.segment}</span>
-                <span className="tabular-num" style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
-                  {metric === 'win_rate'
-                    ? `${v.toFixed(1)}%`
-                    : `${v >= 0 ? '+' : ''}${v.toFixed(2)}R`}
-                  {' '}
-                  <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>· {s.total}</span>
+            <div
+              key={s.segment}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '8px 10px', borderRadius: 8,
+                background: 'var(--bg-elevated)',
+                border: '0.5px solid var(--border-subtle)',
+              }}
+            >
+              <span style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 500 }}>
+                {s.segment}
+              </span>
+              <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span className="tabular-num" style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color,
+                }}>
+                  {fmt}
                 </span>
-              </div>
-              <div style={{ height: 6, background: 'var(--bg-elevated)', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{ width: `${pct}%`, height: '100%', background: color, transition: 'width 250ms' }} />
-              </div>
+                <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>n={s.total}</span>
+              </span>
             </div>
           )
         })}
       </div>
-      <div style={{ marginTop: 8, fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-        <Badge size="sm">muestra ≥ 3 trades</Badge>
-      </div>
+    </div>
+  )
+}
+
+const listTitle: React.CSSProperties = {
+  fontSize: 9,
+  letterSpacing: '1px',
+  textTransform: 'uppercase',
+  color: 'var(--text-tertiary)',
+  fontWeight: 600,
+  marginBottom: 8,
+}
+
+function NotEnoughCard({ text }: { text: string }) {
+  return (
+    <div style={{
+      background: 'var(--bg-surface)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: 14, padding: 18,
+      fontSize: 13, color: 'var(--text-secondary)',
+    }}>
+      {text}
     </div>
   )
 }

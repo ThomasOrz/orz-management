@@ -1,37 +1,31 @@
 'use client'
 
 // ─────────────────────────────────────────────────────────────────────────
-// app/DashboardClient.tsx — Dashboard rediseñado (Iteración 1.5)
+// app/DashboardClient.tsx — Dashboard Híbrido ORZ (Iter 3)
 // ─────────────────────────────────────────────────────────────────────────
-// Migrado al sistema de diseño ORZ Professional:
-//   • PageHeader, Card, StatCard, Badge, EmptyState (components/ui/*)
-//   • Recharts con chart-theme (dark Bloomberg-style)
-//   • Mantiene 4 filas: Estado hoy / Rendimiento / Inteligencia / Charts
+// FILA 1 · 4 KpiCards compactos (Bloomberg)
+// FILA 2 · StatCardLarge equity (2/3) + EdgeCallout (1/3)
+// FILA 3 · ActivityHeatmap full
+// FILA 4 · Insights de Tefa (3 cards limpias)
 // ─────────────────────────────────────────────────────────────────────────
 
 import Link from 'next/link'
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  CartesianGrid, ReferenceLine,
-} from 'recharts'
-import {
-  Activity, TrendingUp, Target, Flame, Lock, Sparkles, AlertTriangle,
-  CheckCircle2, BarChart3,
+  Activity, Lock, Sparkles, AlertTriangle, CheckCircle2, TrendingUp, BarChart3,
 } from 'lucide-react'
 import {
-  statsByTrigger, statsBySession, statsByEmotion, statsByDayOfWeek,
+  statsByTrigger, statsBySession, statsByEmotion, statsByZoneConfluence,
   detectDangerousPatterns,
 } from '@/lib/analytics'
 import type { Trade, TraderStats, DangerAlert } from '@/types/trading'
-import { Card } from '@/components/ui/Card'
-import { StatCard } from '@/components/ui/StatCard'
-import { Badge } from '@/components/ui/Badge'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
-import {
-  chartTheme, axisProps, gridProps, tooltipStyle, tooltipLabelStyle, tooltipItemStyle,
-} from '@/components/ui/chart-theme'
+import { Badge } from '@/components/ui/Badge'
+import { KpiCard } from '@/components/ui/KpiCard'
+import { StatCardLarge } from '@/components/ui/StatCardLarge'
+import { ActivityHeatmap, type HeatmapDay } from '@/components/ui/ActivityHeatmap'
+import { EdgeCallout } from '@/components/ui/EdgeCallout'
 
 const MIN_TRADES_FOR_AI = 10
 
@@ -50,8 +44,9 @@ interface Props {
   userEmail: string
 }
 
-export default function DashboardClient({ stats, trades, briefing }: Props) {
-  const totalClosed = trades.filter((t) => t.resultado !== null).length
+export default function DashboardClient({ stats, trades }: Props) {
+  const cerrados = trades.filter((t) => t.resultado !== null && t.r_obtenido !== null)
+  const totalClosed = cerrados.length
   const alerts = detectDangerousPatterns(trades)
 
   const hoy = new Date().toLocaleDateString('es-ES', {
@@ -82,8 +77,10 @@ export default function DashboardClient({ stats, trades, briefing }: Props) {
           title="Aún no hay trades cerrados"
           description={
             <>
-              Registra tu primer trade en <Link href="/sesion" style={{ color: 'var(--accent-primary)' }}>Sesión</Link>{' '}
-              o valida un setup en <Link href="/validar" style={{ color: 'var(--accent-primary)' }}>Validar</Link> para empezar.
+              Registra tu primer trade en{' '}
+              <Link href="/sesion" style={{ color: 'var(--accent-primary)' }}>Sesión</Link>{' '}
+              o valida un setup en{' '}
+              <Link href="/validar" style={{ color: 'var(--accent-primary)' }}>Validar</Link> para empezar.
             </>
           }
           action={
@@ -95,169 +92,29 @@ export default function DashboardClient({ stats, trades, briefing }: Props) {
         />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-          <Fila1 trades={trades} briefing={briefing} />
-          <Fila2 stats={stats} trades={trades} />
-          <Fila3 trades={trades} alerts={alerts} enoughData={totalClosed >= MIN_TRADES_FOR_AI} />
-          <Fila4 trades={trades} />
+          <Fila1Kpis trades={trades} stats={stats} />
+          <Fila2EquityEdge trades={trades} cerrados={cerrados} />
+          <Fila3Heatmap cerrados={cerrados} />
+          <Fila4Insights trades={trades} alerts={alerts} enoughData={totalClosed >= MIN_TRADES_FOR_AI} />
         </div>
       )}
     </div>
   )
 }
 
-// ─── FILA 1: Estado hoy ──────────────────────────────────────────────────
+// ─── FILA 1 · KPIs compactos ─────────────────────────────────────────────
 
-function Fila1({ trades, briefing }: { trades: Trade[]; briefing: Props['briefing'] }) {
-  const hoy = new Date().toISOString().slice(0, 10)
-  const tradesHoy = trades.filter((t) => t.created_at.slice(0, 10) === hoy && t.resultado !== null)
-  const rHoy = tradesHoy.reduce((a, t) => a + (t.r_obtenido ?? 0), 0)
-  const lossesHoy = tradesHoy.filter((t) => t.resultado === 'Loss').length
-
-  const lastTrade = trades[0]
-  const ultimaEmocion = lastTrade?.emocion ?? null
-  const emocionPeligrosa =
-    ultimaEmocion === 'Revanchista' || ultimaEmocion === 'Frustrado' || ultimaEmocion === 'Eufórico'
-
-  let semaforo: 'green' | 'yellow' | 'red' = 'green'
-  let semaforoTexto = 'Operar con normalidad'
-  if (rHoy <= -3) {
-    semaforo = 'red'
-    semaforoTexto = `STOP — drawdown diario ${rHoy.toFixed(2)}R. Cerrá el día.`
-  } else if (rHoy <= -2 || lossesHoy >= 2 || emocionPeligrosa) {
-    semaforo = 'yellow'
-    semaforoTexto = emocionPeligrosa
-      ? `Precaución — última emoción: ${ultimaEmocion}`
-      : `Precaución — ${lossesHoy} losses hoy (${rHoy.toFixed(2)}R)`
-  }
-
-  let riesgoTexto = '1R estándar'
-  let riesgoVariant: 'default' | 'profit' | 'loss' | 'neutral' = 'default'
-  if (rHoy <= -3) { riesgoTexto = 'Pausado';      riesgoVariant = 'loss' }
-  else if (lossesHoy >= 2 || rHoy <= -2) { riesgoTexto = '0.5R reducido'; riesgoVariant = 'neutral' }
-
-  return (
-    <div className="grid-dashboard">
-      {/* ¿Puedo operar? */}
-      <Card>
-        <div className="stat-row">
-          <span className="stat-label">¿Puedo operar hoy?</span>
-          <Semaforo color={semaforo} />
-        </div>
-        <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 600, color: 'var(--text-primary)', marginTop: 8 }}>
-          {semaforo === 'green' ? 'Verde' : semaforo === 'yellow' ? 'Amarillo' : 'Rojo'}
-        </div>
-        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 }}>
-          {semaforoTexto}
-        </div>
-        <div className="divider" style={{ margin: '14px 0 12px' }} />
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-          <span>Trades hoy: <b className="tabular-num" style={{ color: 'var(--text-secondary)' }}>{tradesHoy.length}</b></span>
-          <span>
-            R hoy:{' '}
-            <b className="tabular-num" style={{ color: rHoy >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
-              {rHoy >= 0 ? '+' : ''}{rHoy.toFixed(2)}R
-            </b>
-          </span>
-        </div>
-      </Card>
-
-      {/* Riesgo permitido */}
-      <StatCard
-        label="Riesgo permitido hoy"
-        value={riesgoTexto}
-        variant={riesgoVariant}
-        size="sm"
-        icon={<Target size={16} />}
-        hint={
-          riesgoTexto === 'Pausado'
-            ? 'DD diario excedido. Día cerrado para proteger capital.'
-            : riesgoTexto.startsWith('0.5')
-              ? 'Recuperación mode — mitad de riesgo hasta recomponer.'
-              : 'Sin restricciones. Respetá tu plan.'
-        }
-      />
-
-      {/* Sesgo del día */}
-      <Card>
-        <div className="stat-row">
-          <span className="stat-label">Sesgo del día</span>
-        </div>
-        {briefing ? (
-          <>
-            <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
-              <SesgoPill label="NAS100" value={briefing.sesgo_nas100 ?? '—'} />
-              <SesgoPill label="XAUUSD" value={briefing.sesgo_xauusd ?? '—'} />
-            </div>
-            {briefing.condicion && (
-              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5, marginTop: 12 }}>
-                <span style={{ color: 'var(--text-tertiary)' }}>Condición: </span>
-                {briefing.condicion}
-              </div>
-            )}
-            <Link href="/briefing" style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-primary)', marginTop: 12, display: 'inline-block' }}>
-              Ver briefing completo →
-            </Link>
-          </>
-        ) : (
-          <>
-            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 12 }}>
-              Sin briefing generado hoy
-            </div>
-            <Link href="/briefing" style={{ fontSize: 'var(--text-xs)', color: 'var(--accent-primary)', marginTop: 10, display: 'inline-block' }}>
-              Generar briefing →
-            </Link>
-          </>
-        )}
-      </Card>
-    </div>
-  )
-}
-
-function Semaforo({ color }: { color: 'green' | 'yellow' | 'red' }) {
-  const c = color === 'green' ? 'var(--profit)' : color === 'yellow' ? 'var(--neutral)' : 'var(--loss)'
-  const glow = color === 'green' ? 'rgba(0,230,118,0.3)' : color === 'yellow' ? 'rgba(251,191,36,0.3)' : 'rgba(255,59,74,0.3)'
-  return (
-    <div style={{
-      width: 14, height: 14, borderRadius: '50%',
-      background: c, boxShadow: `0 0 16px ${glow}`,
-    }} />
-  )
-}
-
-function SesgoPill({ label, value }: { label: string; value: string }) {
-  const v = value.toLowerCase()
-  const variant: 'profit' | 'loss' | 'default' =
-    v.includes('alcista') || v.includes('long') ? 'profit'
-    : v.includes('bajista') || v.includes('short') ? 'loss'
-    : 'default'
-  return (
-    <div style={{
-      flex: 1, minWidth: 110,
-      padding: '10px 12px',
-      borderRadius: 'var(--radius-md)',
-      border: '1px solid var(--border-subtle)',
-      background: 'var(--bg-elevated)',
-    }}>
-      <div className="stat-label" style={{ fontSize: 10 }}>{label}</div>
-      <div style={{ marginTop: 4 }}>
-        <Badge variant={variant} size="md">{value}</Badge>
-      </div>
-    </div>
-  )
-}
-
-// ─── FILA 2: Rendimiento ─────────────────────────────────────────────────
-
-function Fila2({ stats, trades }: { stats: TraderStats | null; trades: Trade[] }) {
+function Fila1Kpis({ trades, stats }: { trades: Trade[]; stats: TraderStats | null }) {
   const now = Date.now()
   const d30 = 30 * 24 * 3600 * 1000
-  const cerrados = trades.filter((t) => t.resultado !== null)
+  const cerrados = trades.filter((t) => t.resultado !== null && t.r_obtenido !== null)
+
   const wr = (arr: Trade[]) => {
     const decisivos = arr.filter((t) => t.resultado === 'Win' || t.resultado === 'Loss')
-    if (decisivos.length === 0) return null
-    const wins = decisivos.filter((t) => t.resultado === 'Win').length
-    return (wins / decisivos.length) * 100
+    if (!decisivos.length) return null
+    return (decisivos.filter((t) => t.resultado === 'Win').length / decisivos.length) * 100
   }
+
   const last30 = cerrados.filter((t) => now - new Date(t.created_at).getTime() <= d30)
   const prev30 = cerrados.filter((t) => {
     const diff = now - new Date(t.created_at).getTime()
@@ -265,82 +122,185 @@ function Fila2({ stats, trades }: { stats: TraderStats | null; trades: Trade[] }
   })
   const wr30 = wr(last30)
   const wrPrev = wr(prev30)
-  const delta = wr30 !== null && wrPrev !== null ? wr30 - wrPrev : null
+  const wrDelta = wr30 != null && wrPrev != null ? wr30 - wrPrev : null
 
-  const mesActual = new Date().toISOString().slice(0, 7)
-  const tradesMes = cerrados.filter((t) => t.created_at.slice(0, 7) === mesActual)
-  const rMes = tradesMes.reduce((a, t) => a + (t.r_obtenido ?? 0), 0)
+  const pf = stats?.profit_factor ?? null
+
+  // R del mes y mes anterior
+  const mesAct = new Date().toISOString().slice(0, 7)
+  const mesPrevDate = new Date()
+  mesPrevDate.setMonth(mesPrevDate.getMonth() - 1)
+  const mesPrev = mesPrevDate.toISOString().slice(0, 7)
+  const rMes = cerrados.filter((t) => t.created_at.slice(0, 7) === mesAct).reduce((a, t) => a + (t.r_obtenido ?? 0), 0)
+  const rPrev = cerrados.filter((t) => t.created_at.slice(0, 7) === mesPrev).reduce((a, t) => a + (t.r_obtenido ?? 0), 0)
+  const rDelta = rMes - rPrev
+
+  // Drawdown actual: peor caída desde el último pico en R acumulado
+  const sortedAsc = [...cerrados].sort((a, b) => a.created_at.localeCompare(b.created_at))
+  let peak = 0
+  let acc = 0
+  let curDD = 0
+  for (const t of sortedAsc) {
+    acc += t.r_obtenido ?? 0
+    if (acc > peak) peak = acc
+    const dd = peak - acc
+    curDD = dd
+  }
+  const ddLimit = 10  // ej: máximo 10R drawdown permitido (heurístico)
 
   return (
-    <div className="grid-dashboard">
-      <StatCard
-        label="Win Rate · 30d"
-        value={wr30 !== null ? `${wr30.toFixed(1)}%` : '—'}
-        size="sm"
-        icon={<Target size={16} />}
-        delta={delta !== null ? `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} pts vs anterior` : last30.length > 0 ? `${last30.length} trades` : 'sin datos'}
-        trend={delta === null ? 'flat' : delta >= 0 ? 'up' : 'down'}
-        hint={`${last30.length} trades en ventana`}
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+      gap: 'var(--space-3)',
+    }}>
+      <KpiCard
+        label="WR · 30d"
+        value={wr30 != null ? `${wr30.toFixed(1)}%` : '—'}
+        delta={wrDelta != null ? `${wrDelta >= 0 ? '+' : ''}${wrDelta.toFixed(1)}` : null}
+        trend={wrDelta == null ? 'neutral' : wrDelta >= 0 ? 'success' : 'danger'}
       />
-      <StatCard
+      <KpiCard
         label="Profit Factor"
-        value={stats?.profit_factor != null ? stats.profit_factor.toFixed(2) : '∞'}
-        size="sm"
-        icon={<TrendingUp size={16} />}
-        variant={stats?.profit_factor != null && stats.profit_factor > 1.5 ? 'profit' : 'default'}
-        delta={
-          stats?.profit_factor != null && stats.profit_factor > 1.5
-            ? '✓ saludable'
-            : stats?.profit_factor != null
-              ? 'debajo de 1.5'
-              : 'sin pérdidas'
-        }
-        trend={stats?.profit_factor != null && stats.profit_factor > 1.5 ? 'up' : 'flat'}
+        value={pf != null ? pf.toFixed(2) : '∞'}
+        delta={pf != null ? (pf >= 1.5 ? 'sano' : 'bajo') : 'sin pérdidas'}
+        trend={pf != null && pf >= 1.5 ? 'success' : pf != null ? 'warning' : 'info'}
       />
-      <StatCard
-        label={`R · ${new Date().toLocaleDateString('es-ES', { month: 'long' })}`}
+      <KpiCard
+        label="R del mes"
         value={`${rMes >= 0 ? '+' : ''}${rMes.toFixed(2)}R`}
-        variant={rMes >= 0 ? 'profit' : 'loss'}
-        size="sm"
-        icon={<Activity size={16} />}
-        hint={`${tradesMes.length} trades este mes`}
+        delta={`${rDelta >= 0 ? '+' : ''}${rDelta.toFixed(2)} vs mes ant.`}
+        trend={rMes >= 0 ? 'success' : 'danger'}
       />
-      <StatCard
-        label="Racha actual"
-        value={
-          stats?.current_streak
-            ? `${stats.current_streak > 0 ? '+' : ''}${stats.current_streak}`
-            : '0'
+      <KpiCard
+        label="Drawdown actual"
+        value={`-${curDD.toFixed(2)}R`}
+        delta={`${((curDD / ddLimit) * 100).toFixed(0)}% de ${ddLimit}R`}
+        trend={curDD >= ddLimit * 0.8 ? 'danger' : curDD >= ddLimit * 0.5 ? 'warning' : 'success'}
+      />
+    </div>
+  )
+}
+
+// ─── FILA 2 · Equity Curve + EdgeCallout ─────────────────────────────────
+
+function Fila2EquityEdge({ trades, cerrados }: { trades: Trade[]; cerrados: Trade[] }) {
+  const now = Date.now()
+  const d30 = 30 * 24 * 3600 * 1000
+
+  const sorted = [...cerrados].sort((a, b) => a.created_at.localeCompare(b.created_at))
+  const last30Sorted = sorted.filter((t) => now - new Date(t.created_at).getTime() <= d30)
+
+  let acc = 0
+  const sparkData: number[] = []
+  for (const t of last30Sorted) {
+    acc += t.r_obtenido ?? 0
+    sparkData.push(parseFloat(acc.toFixed(2)))
+  }
+  const totalR30 = sparkData.length > 0 ? sparkData[sparkData.length - 1] : 0
+  const trend = totalR30 >= 0 ? 'success' : 'danger'
+
+  // Edge: best combo (zone confluence × trigger × sesion)
+  const zoneStats = statsByZoneConfluence(trades).filter((s) => s.total >= 3)
+  const triggerStats = statsByTrigger(trades).filter((s) => s.total >= 3)
+  const sessionStats = statsBySession(trades).filter((s) => s.total >= 3)
+  const emotionStats = statsByEmotion(trades).filter((s) => s.total >= 3)
+
+  const bestZone = [...zoneStats].sort((a, b) => b.win_rate - a.win_rate)[0]
+  const bestTrigger = [...triggerStats].sort((a, b) => b.win_rate - a.win_rate)[0]
+  const bestSession = [...sessionStats].sort((a, b) => b.win_rate - a.win_rate)[0]
+  const bestEmotion = [...emotionStats].sort((a, b) => b.win_rate - a.win_rate)[0]
+
+  const segments = [bestTrigger?.segment, bestSession?.segment, bestEmotion?.segment].filter(Boolean) as string[]
+  const edgeStats = bestZone ?? bestTrigger
+  const winRate = edgeStats?.win_rate ?? 0
+  const avgR = edgeStats?.avg_r ?? 0
+  const sample = edgeStats?.total ?? 0
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 'var(--space-5)' }}>
+      <StatCardLarge
+        label="Equity Curve · R acumulado · 30d"
+        value={`${totalR30 >= 0 ? '+' : ''}${totalR30.toFixed(2)}R`}
+        delta={`${last30Sorted.length} trades`}
+        trend={trend}
+        sparklineData={sparkData}
+        caption={
+          last30Sorted.length === 0
+            ? 'Sin trades cerrados en los últimos 30 días.'
+            : `Desde ${last30Sorted[0].created_at.slice(0, 10)} · ${last30Sorted.length} operaciones registradas`
         }
-        variant={
-          stats?.current_streak && stats.current_streak > 0 ? 'profit'
-          : stats?.current_streak && stats.current_streak < 0 ? 'loss'
-          : 'default'
-        }
-        size="sm"
-        icon={<Flame size={16} />}
-        delta={stats ? `Mejor: ${stats.best_streak}W · Peor: ${stats.worst_streak}L` : null}
-        hint={
-          stats?.current_streak && stats.current_streak > 0 ? 'wins consecutivos'
-          : stats?.current_streak && stats.current_streak < 0 ? 'losses consecutivos'
-          : 'sin racha activa'
+        rightSlot={<TabPills active="30D" />}
+      />
+      <EdgeCallout
+        segments={segments}
+        winRate={winRate}
+        avgR={avgR}
+        sampleSize={sample}
+        caption={
+          edgeStats
+            ? `Tu mejor combinación detectada · WR vs base ${winRate.toFixed(0)}%`
+            : undefined
         }
       />
     </div>
   )
 }
 
-// ─── FILA 3: Inteligencia ────────────────────────────────────────────────
+function TabPills({ active }: { active: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {['30D', '90D', 'YTD'].map((t) => (
+        <span
+          key={t}
+          style={{
+            padding: '3px 8px',
+            borderRadius: 4,
+            fontSize: 10,
+            fontWeight: 600,
+            letterSpacing: '0.05em',
+            color: t === active ? 'var(--accent-primary)' : 'var(--text-tertiary)',
+            background: t === active ? 'var(--accent-primary-bg)' : 'transparent',
+            border: `0.5px solid ${t === active ? 'rgba(0,212,255,0.3)' : 'var(--border-subtle)'}`,
+            cursor: 'default',
+          }}
+        >
+          {t}
+        </span>
+      ))}
+    </div>
+  )
+}
 
-function Fila3({
+// ─── FILA 3 · Heatmap ────────────────────────────────────────────────────
+
+function Fila3Heatmap({ cerrados }: { cerrados: Trade[] }) {
+  const byDate = new Map<string, { r: number; trades: number }>()
+  for (const t of cerrados) {
+    const d = t.created_at.slice(0, 10)
+    const cur = byDate.get(d) ?? { r: 0, trades: 0 }
+    cur.r += t.r_obtenido ?? 0
+    cur.trades += 1
+    byDate.set(d, cur)
+  }
+  const data: HeatmapDay[] = Array.from(byDate.entries()).map(([date, v]) => ({
+    date, r: v.r, trades: v.trades,
+  }))
+
+  return <ActivityHeatmap data={data} days={90} />
+}
+
+// ─── FILA 4 · Insights ───────────────────────────────────────────────────
+
+function Fila4Insights({
   trades, alerts, enoughData,
 }: { trades: Trade[]; alerts: DangerAlert[]; enoughData: boolean }) {
   if (!enoughData) {
     return (
       <EmptyState
         icon={<Lock size={28} />}
-        title={`Registra ${MIN_TRADES_FOR_AI} trades para desbloquear insights de IA`}
-        description="Tefa necesita una muestra mínima para detectar patrones confiables. Seguí cargando trades en sesión."
+        title={`Registra ${MIN_TRADES_FOR_AI} trades para desbloquear insights de Tefa`}
+        description="Necesitamos una muestra mínima para detectar patrones confiables."
       />
     )
   }
@@ -352,82 +312,136 @@ function Fila3({
   const bestTrigger = [...triggers].sort((a, b) => b.win_rate - a.win_rate)[0]
   const bestSession = [...sessions].sort((a, b) => b.win_rate - a.win_rate)[0]
   const worstPattern = [...emotions, ...triggers, ...sessions].sort((a, b) => a.avg_r - b.avg_r)[0]
-
   const topAlerts = alerts.slice(0, 3)
 
+  const sectionTitle: React.CSSProperties = {
+    fontSize: 12, fontWeight: 600, color: '#888',
+    margin: 0, display: 'flex', alignItems: 'center', gap: 8,
+  }
+
   return (
-    <div className="grid-dashboard">
-      {/* Insights */}
-      <Card>
-        <div className="stat-row">
-          <span className="stat-label">Insights de Tefa</span>
-          <Sparkles size={16} style={{ color: 'var(--accent-primary)' }} />
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+      gap: 'var(--space-4)',
+    }}>
+      <CleanCard>
+        <div style={sectionTitle}>
+          <Sparkles size={14} style={{ color: 'var(--accent-primary)' }} />
+          Insights de Tefa
         </div>
         {topAlerts.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
             {topAlerts.map((a) => <AlertItem key={a.code} alert={a} />)}
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 8 }}>
-            <CheckCircle2 size={16} style={{ color: 'var(--profit)' }} />
-            Sin patrones peligrosos detectados. Seguí así.
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, fontSize: 13, color: 'var(--text-secondary)' }}>
+            <CheckCircle2 size={14} style={{ color: 'var(--profit)' }} />
+            Sin patrones peligrosos detectados.
           </div>
         )}
-      </Card>
+      </CleanCard>
 
-      {/* Mejor setup */}
-      <Card>
-        <div className="stat-row">
-          <span className="stat-label">Tu mejor setup</span>
-          <TrendingUp size={16} style={{ color: 'var(--profit)' }} />
+      <CleanCard>
+        <div style={sectionTitle}>
+          <TrendingUp size={14} style={{ color: 'var(--profit)' }} />
+          Tu mejor setup
         </div>
         {bestTrigger && bestSession ? (
           <>
-            <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--text-primary)', marginTop: 4 }}>
+            <div style={{
+              fontSize: 18, fontWeight: 600, color: 'var(--text-primary)',
+              marginTop: 12, lineHeight: 1.3,
+            }}>
               {bestTrigger.segment}
             </div>
-            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
               en sesión <b style={{ color: 'var(--text-primary)' }}>{bestSession.segment}</b>
             </div>
-            <div style={{ display: 'flex', gap: 18, marginTop: 14, flexWrap: 'wrap' }}>
-              <Stat label="WR trigger" value={`${bestTrigger.win_rate.toFixed(1)}%`} color="var(--profit)" />
-              <Stat label="WR sesión" value={`${bestSession.win_rate.toFixed(1)}%`} color="var(--profit)" />
-              <Stat label="Promedio" value={`${bestTrigger.avg_r >= 0 ? '+' : ''}${bestTrigger.avg_r.toFixed(2)}R`} />
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 10, marginTop: 14, paddingTop: 10,
+              borderTop: '0.5px solid var(--border-subtle)',
+            }}>
+              <MiniStat label="WR" value={`${bestTrigger.win_rate.toFixed(0)}%`} color="var(--profit)" />
+              <MiniStat label="R prom" value={`${bestTrigger.avg_r >= 0 ? '+' : ''}${bestTrigger.avg_r.toFixed(2)}`} color="var(--profit)" />
+              <MiniStat label="N" value={`${bestTrigger.total}`} />
             </div>
           </>
         ) : (
-          <div style={{ marginTop: 14, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-            Muestra insuficiente por segmento.
+          <div style={{ marginTop: 14, fontSize: 13, color: 'var(--text-secondary)' }}>
+            Muestra insuficiente.
           </div>
         )}
-      </Card>
+      </CleanCard>
 
-      {/* Punto débil */}
-      <Card>
-        <div className="stat-row">
-          <span className="stat-label">Tu punto débil</span>
-          <AlertTriangle size={16} style={{ color: 'var(--loss)' }} />
+      <CleanCard>
+        <div style={sectionTitle}>
+          <AlertTriangle size={14} style={{ color: 'var(--loss)' }} />
+          Tu punto débil
         </div>
         {worstPattern && worstPattern.total >= 3 ? (
           <>
-            <div style={{ fontSize: 'var(--text-lg)', fontWeight: 600, color: 'var(--loss)', marginTop: 4 }}>
+            <div style={{
+              fontSize: 18, fontWeight: 600, color: 'var(--loss)',
+              marginTop: 12, lineHeight: 1.3,
+            }}>
               {worstPattern.segment}
             </div>
-            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
               {worstPattern.total} trades · {worstPattern.wins}W / {worstPattern.losses}L
             </div>
-            <div style={{ display: 'flex', gap: 18, marginTop: 14, flexWrap: 'wrap' }}>
-              <Stat label="WR" value={`${worstPattern.win_rate.toFixed(1)}%`} color="var(--loss)" />
-              <Stat label="Promedio" value={`${worstPattern.avg_r >= 0 ? '+' : ''}${worstPattern.avg_r.toFixed(2)}R`} color="var(--loss)" />
-              <Stat label="Total" value={`${worstPattern.total_r >= 0 ? '+' : ''}${worstPattern.total_r.toFixed(1)}R`} color={worstPattern.total_r >= 0 ? 'var(--profit)' : 'var(--loss)'} />
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 10, marginTop: 14, paddingTop: 10,
+              borderTop: '0.5px solid var(--border-subtle)',
+            }}>
+              <MiniStat label="WR" value={`${worstPattern.win_rate.toFixed(0)}%`} color="var(--loss)" />
+              <MiniStat label="R prom" value={`${worstPattern.avg_r >= 0 ? '+' : ''}${worstPattern.avg_r.toFixed(2)}`} color="var(--loss)" />
+              <MiniStat label="Total" value={`${worstPattern.total_r >= 0 ? '+' : ''}${worstPattern.total_r.toFixed(1)}R`} color={worstPattern.total_r >= 0 ? 'var(--profit)' : 'var(--loss)'} />
             </div>
           </>
         ) : (
-          <div style={{ marginTop: 14, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-            Sin muestra suficiente para detectar patrón.
+          <div style={{ marginTop: 14, fontSize: 13, color: 'var(--text-secondary)' }}>
+            Sin patrón débil claro.
           </div>
         )}
-      </Card>
+      </CleanCard>
+    </div>
+  )
+}
+
+function CleanCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      background: 'var(--bg-surface)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: 14,
+      padding: 18,
+      minHeight: 160,
+      display: 'flex', flexDirection: 'column',
+    }}>
+      {children}
+    </div>
+  )
+}
+
+function MiniStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div>
+      <div style={{
+        fontSize: 9, letterSpacing: '0.5px',
+        textTransform: 'uppercase', color: 'var(--text-tertiary)',
+        fontWeight: 600, marginBottom: 4,
+      }}>
+        {label}
+      </div>
+      <div className="tabular-num" style={{
+        fontFamily: 'var(--font-mono)',
+        fontSize: 14, fontWeight: 600, color: color ?? 'var(--text-primary)', lineHeight: 1,
+      }}>
+        {value}
+      </div>
     </div>
   )
 }
@@ -437,169 +451,16 @@ function AlertItem({ alert }: { alert: DangerAlert }) {
   const colorVar = alert.severity === 'critical' ? 'var(--loss)' : alert.severity === 'warning' ? 'var(--neutral)' : 'var(--info)'
   return (
     <div style={{
-      padding: '10px 12px',
-      borderRadius: 'var(--radius-md)',
-      border: `1px solid ${colorVar}33`,
+      padding: '8px 10px',
+      borderRadius: 8,
+      border: `0.5px solid ${colorVar}33`,
       background: `${colorVar}0A`,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
         <Badge variant={variant} size="sm">{alert.severity}</Badge>
-        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: colorVar }}>{alert.title}</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: colorVar }}>{alert.title}</div>
       </div>
-      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{alert.detail}</div>
-    </div>
-  )
-}
-
-function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <div>
-      <div className="stat-label" style={{ fontSize: 10 }}>{label}</div>
-      <div className="tabular-num" style={{ fontSize: 'var(--text-base)', fontWeight: 600, color: color ?? 'var(--text-primary)', marginTop: 4 }}>
-        {value}
-      </div>
-    </div>
-  )
-}
-
-// ─── FILA 4: Gráficas ────────────────────────────────────────────────────
-
-function Fila4({ trades }: { trades: Trade[] }) {
-  const cerrados = trades
-    .filter((t) => t.resultado !== null && t.r_obtenido !== null)
-    .slice()
-    .sort((a, b) => a.created_at.localeCompare(b.created_at))
-  let acc = 0
-  const equityData = cerrados.map((t, i) => {
-    acc += t.r_obtenido ?? 0
-    return { n: i + 1, r: parseFloat(acc.toFixed(2)) }
-  })
-
-  const dayStats = statsByDayOfWeek(trades).filter((s) => s.total > 0)
-  const dayData = dayStats.map((s) => ({
-    dia: s.segment.slice(0, 3),
-    wr: parseFloat(s.win_rate.toFixed(1)),
-    trades: s.total,
-  }))
-
-  const triggerStats = statsByTrigger(trades).filter((s) => s.total > 0)
-  const triggerData = triggerStats.map((s) => ({
-    trigger: s.segment.split(' ')[0],
-    wins: s.wins,
-    losses: s.losses,
-    breakevens: s.breakevens,
-  }))
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
-      <Card>
-        <div className="stat-row">
-          <span className="stat-label">Equity curve · R acumulado</span>
-        </div>
-        {equityData.length > 0 ? (
-          <div style={{ height: 280, marginTop: 12 }}>
-            <ResponsiveContainer>
-              <LineChart data={equityData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid {...gridProps} />
-                <XAxis dataKey="n" {...axisProps} />
-                <YAxis {...axisProps} />
-                <ReferenceLine y={0} stroke={chartTheme.colors.axis} strokeDasharray="3 3" />
-                <Tooltip
-                  contentStyle={tooltipStyle}
-                  labelStyle={tooltipLabelStyle}
-                  itemStyle={tooltipItemStyle}
-                  formatter={(v) => {
-                    const n = Number(v)
-                    return [`${n >= 0 ? '+' : ''}${n}R`, 'Acumulado']
-                  }}
-                  labelFormatter={(n) => `Trade #${n}`}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="r"
-                  stroke={chartTheme.colors.accent}
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4, fill: chartTheme.colors.accent }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        ) : (
-          <EmptyChart />
-        )}
-      </Card>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--space-5)' }}>
-        <Card>
-          <div className="stat-row">
-            <span className="stat-label">Win rate por día de la semana</span>
-          </div>
-          {dayData.length > 0 ? (
-            <div style={{ height: 240, marginTop: 12 }}>
-              <ResponsiveContainer>
-                <BarChart data={dayData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid {...gridProps} />
-                  <XAxis dataKey="dia" {...axisProps} />
-                  <YAxis {...axisProps} domain={[0, 100]} />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    labelStyle={tooltipLabelStyle}
-                    itemStyle={tooltipItemStyle}
-                    cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                    formatter={(v, _k, item) => {
-                      const t = (item as { payload?: { trades?: number } })?.payload?.trades ?? 0
-                      return [`${v}% (${t} trades)`, 'WR']
-                    }}
-                  />
-                  <Bar dataKey="wr" fill={chartTheme.colors.accent} radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <EmptyChart />
-          )}
-        </Card>
-
-        <Card>
-          <div className="stat-row">
-            <span className="stat-label">Resultados por trigger</span>
-          </div>
-          {triggerData.length > 0 ? (
-            <div style={{ height: 240, marginTop: 12 }}>
-              <ResponsiveContainer>
-                <BarChart data={triggerData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid {...gridProps} />
-                  <XAxis dataKey="trigger" {...axisProps} />
-                  <YAxis {...axisProps} allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    labelStyle={tooltipLabelStyle}
-                    itemStyle={tooltipItemStyle}
-                    cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                  />
-                  <Bar dataKey="wins"       stackId="a" fill={chartTheme.colors.profit} />
-                  <Bar dataKey="breakevens" stackId="a" fill={chartTheme.colors.textMuted} />
-                  <Bar dataKey="losses"     stackId="a" fill={chartTheme.colors.loss} radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <EmptyChart />
-          )}
-        </Card>
-      </div>
-    </div>
-  )
-}
-
-function EmptyChart() {
-  return (
-    <div style={{
-      height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      color: 'var(--text-tertiary)', fontSize: 'var(--text-sm)',
-    }}>
-      Sin datos suficientes
+      <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.45 }}>{alert.detail}</div>
     </div>
   )
 }
