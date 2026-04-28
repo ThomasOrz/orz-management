@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   Home, FileText, CheckSquare, Zap, BarChart3, MessageCircle, LogOut,
-  Users,
+  Users, FlaskConical,
   type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -27,6 +27,7 @@ const navLinks: NavLink[] = [
   { href: '/validar',         label: 'Validar Setup',   icon: CheckSquare },
   { href: '/sesion',          label: 'Sesión',          icon: Zap },
   { href: '/evaluacion',      label: 'Evaluación',      icon: BarChart3 },
+  { href: '/laboratorio',     label: 'Laboratorio',     icon: FlaskConical },
   { href: '/chat',            label: 'Chat Mentor',     icon: MessageCircle },
   { href: '/admin/usuarios',  label: 'Usuarios',        icon: Users, adminOnly: true },
 ]
