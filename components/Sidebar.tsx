@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   Home, FileText, CheckSquare, Zap, BarChart3, MessageCircle, LogOut,
-  Users, FlaskConical,
+  Users, FlaskConical, Wallet,
   type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -28,8 +28,10 @@ const navLinks: NavLink[] = [
   { href: '/sesion',          label: 'Sesión',          icon: Zap },
   { href: '/evaluacion',      label: 'Evaluación',      icon: BarChart3 },
   { href: '/laboratorio',     label: 'Laboratorio',     icon: FlaskConical },
+  { href: '/capital',         label: 'Capital',         icon: Wallet },
   { href: '/chat',            label: 'Chat Mentor',     icon: MessageCircle },
   { href: '/admin/usuarios',  label: 'Usuarios',        icon: Users, adminOnly: true },
+  { href: '/admin/capital',   label: 'Admin Capital',   icon: Wallet, adminOnly: true },
 ]
 
 export default function Sidebar() {

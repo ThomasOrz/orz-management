@@ -9,7 +9,7 @@ export default async function SesionPage() {
 
   const today = new Date().toISOString().split('T')[0]
 
-  const [{ data: trades }, { data: historic }] = await Promise.all([
+  const [{ data: trades }, { data: historic }, { data: account }] = await Promise.all([
     supabase
       .from('trades')
       .select('*')
@@ -23,6 +23,11 @@ export default async function SesionPage() {
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(500),
+    supabase
+      .from('trading_account')
+      .select('capital_actual, riesgo_default_pct')
+      .eq('user_id', user.id)
+      .maybeSingle(),
   ])
 
   return (
@@ -30,6 +35,7 @@ export default async function SesionPage() {
       userId={user.id}
       initialTrades={trades ?? []}
       historicTrades={historic ?? []}
+      capitalHint={account ?? null}
     />
   )
 }

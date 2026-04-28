@@ -75,12 +75,16 @@ interface Trade {
   screenshot_url: string | null
   trade_cerrado: boolean
   fecha_cierre: string | null
+  // Iteración 5: capital tracking
+  riesgo_usd: number | null
+  pnl_usd: number | null
 }
 
 interface Props {
   userId: string
   initialTrades: Trade[]
   historicTrades?: TradeFull[]
+  capitalHint?: { capital_actual: number; riesgo_default_pct: number } | null
 }
 
 // ── Constantes ────────────────────────────────────────────────────────────
@@ -316,7 +320,7 @@ function CollapsibleSection({
 // Componente principal
 // ─────────────────────────────────────────────────────────────────────────
 
-export default function SesionClient({ userId, initialTrades, historicTrades = [] }: Props) {
+export default function SesionClient({ userId, initialTrades, historicTrades = [], capitalHint }: Props) {
   const supabase = createClient()
   const [trades, setTrades] = useState<Trade[]>(initialTrades)
   const [activeTab, setActiveTab] = useState<'registrar' | 'analisis'>('registrar')
@@ -334,6 +338,7 @@ export default function SesionClient({ userId, initialTrades, historicTrades = [
   const [sesgoManual, setSesgoManual] = useState(false)
   const [capital, setCapital]       = useState<string>('')
   const [riesgoR, setRiesgoR]       = useState<number>(1)
+  const [riesgoUsd, setRiesgoUsd]   = useState<string>('')
 
   // ── B · Setup ───────────────────────────────────────────────────
   const [tipoVela, setTipoVela]     = useState<string>('V85 alcista')
@@ -551,6 +556,7 @@ export default function SesionClient({ userId, initialTrades, historicTrades = [
           screenshot_url:        screenshotUrl,
           trade_cerrado,
           fecha_cierre:          trade_cerrado ? nowIso : null,
+          riesgo_usd:            riesgoUsd !== '' ? parseFloat(riesgoUsd) : null,
         })
         .select()
         .single()
@@ -705,6 +711,42 @@ export default function SesionClient({ userId, initialTrades, historicTrades = [
                 onChange={v => setRiesgoR(parseFloat(v))}
               />
             </div>
+          </div>
+
+          {/* Riesgo en USD — Capital Tracking */}
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <Label>Riesgo en USD (opcional)</Label>
+              {capitalHint && riesgoUsd === '' && (
+                <button
+                  type="button"
+                  onClick={() => setRiesgoUsd(
+                    (capitalHint.capital_actual * capitalHint.riesgo_default_pct / 100).toFixed(2)
+                  )}
+                  style={{ fontSize: 11, color: S.accent, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                >
+                  Usar sugerencia: ${(capitalHint.capital_actual * capitalHint.riesgo_default_pct / 100).toFixed(2)}
+                </button>
+              )}
+            </div>
+            <input
+              type="number"
+              value={riesgoUsd}
+              onChange={e => setRiesgoUsd(e.target.value)}
+              placeholder="ej: 100"
+              step="0.01"
+              min="0"
+              style={{
+                width: '100%', padding: '10px 14px', borderRadius: 10, fontSize: 13,
+                backgroundColor: S.bg, border: `1px solid ${riesgoUsd ? S.accent + '40' : S.muted}`,
+                color: S.t1, outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+            {riesgoUsd === '' && (
+              <p style={{ fontSize: 11, color: S.t3, marginTop: 4 }}>
+                Sin monto USD → este trade no afectará el Capital Tracking
+              </p>
+            )}
           </div>
         </CollapsibleSection>
 
