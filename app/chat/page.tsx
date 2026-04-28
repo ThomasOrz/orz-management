@@ -1,9 +1,5 @@
 'use client'
 
-// ─────────────────────────────────────────────────────────────────────────
-// app/chat/page.tsx — Chat Mentor (rediseñado Iteración 1.5)
-// ─────────────────────────────────────────────────────────────────────────
-
 import { useState, useRef, useEffect } from 'react'
 import { Send, Sparkles } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -17,9 +13,24 @@ interface Mensaje {
   texto: string
 }
 
+interface TraderContext {
+  recentTrades?: Array<{
+    activo: string; sesion: string; trigger: string; zona_diario: string
+    resultado: 'Win' | 'Loss' | 'Breakeven'; r_obtenido: number
+    emocion: string | null; siguio_reglas: boolean | null; created_at: string
+  }>
+  capital?: {
+    capital_inicial: number; capital_actual: number; pnl_pct: number
+    drawdown_actual_pct: number; tipo_cuenta: string; divisa: string
+  } | null
+  labSetups?: Array<{
+    nombre: string; estado: string; n_total: number; win_rate: number; avg_r: number
+  }>
+}
+
 const SALUDO_INICIAL: Mensaje = {
   rol: 'tefa',
-  texto: '¡Hola! Soy Tefa, tu mentor de trading. ¿En qué puedo ayudarte hoy?',
+  texto: '¡Hola! Soy Tefa, tu mentora de trading en ORZ Academy. Tengo acceso a tu historial, capital y análisis de ventaja. ¿En qué puedo ayudarte hoy?',
 }
 
 export default function ChatPage() {
@@ -28,8 +39,71 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [ctx, setCtx] = useState<TraderContext>({})
   const bottomRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Load trader context once on mount
+  useEffect(() => {
+    async function loadCtx() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const [
+        { data: trades },
+        { data: account },
+        { data: setups },
+        { data: movements },
+      ] = await Promise.all([
+        supabase.from('trades').select('activo,sesion,trigger,zona_diario,resultado,r_obtenido,emocion,siguio_reglas,created_at')
+          .eq('user_id', user.id).eq('trade_cerrado', true).not('resultado', 'is', null).not('r_obtenido', 'is', null)
+          .order('created_at', { ascending: false }).limit(100),
+        supabase.from('trading_account').select('capital_inicial,capital_actual,tipo_cuenta,divisa,limite_diario_pct').eq('user_id', user.id).maybeSingle(),
+        supabase.from('lab_setups').select('nombre,estado').eq('user_id', user.id).in('estado', ['testing', 'validated']),
+        supabase.from('capital_movements').select('monto,tipo,fecha').eq('user_id', user.id).order('fecha', { ascending: true }),
+      ])
+
+      // Compute PnL and drawdown from account + movements
+      let capitalCtx: TraderContext['capital'] = null
+      if (account) {
+        const pnl_pct = account.capital_inicial > 0
+          ? ((account.capital_actual - account.capital_inicial) / account.capital_inicial) * 100
+          : 0
+        // Simple drawdown: peak is capital_actual max across movements
+        const movs = (movements ?? []) as Array<{ monto: number; tipo: string; fecha: string }>
+        let peak = account.capital_inicial
+        let running = account.capital_inicial
+        let maxDD = 0
+        for (const m of movs) {
+          running += m.monto
+          if (running > peak) peak = running
+          const dd = peak > 0 ? ((peak - running) / peak) * 100 : 0
+          if (dd > maxDD) maxDD = dd
+        }
+        // Current drawdown vs peak
+        if (running > peak) peak = running
+        const drawdown_actual_pct = peak > 0 ? ((peak - account.capital_actual) / peak) * 100 : 0
+
+        capitalCtx = {
+          capital_inicial: account.capital_inicial,
+          capital_actual: account.capital_actual,
+          pnl_pct,
+          drawdown_actual_pct,
+          tipo_cuenta: account.tipo_cuenta,
+          divisa: account.divisa,
+        }
+      }
+
+      // Compute light setup metrics
+      const closedTrades = (trades ?? []) as TraderContext['recentTrades'] & object[]
+      const labSetups: TraderContext['labSetups'] = (setups ?? []).map(s => {
+        // simplified — pass 0s, EF does the heavy lifting
+        return { nombre: s.nombre, estado: s.estado, n_total: 0, win_rate: 0, avg_r: 0 }
+      })
+
+      setCtx({ recentTrades: closedTrades ?? [], capital: capitalCtx, labSetups })
+    }
+    loadCtx()
+  }, [supabase])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -49,7 +123,7 @@ export default function ChatPage() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error('Sin sesión activa')
 
-      const historial = mensajes.slice(-20).map((m) => ({
+      const history = mensajes.slice(-20).map((m) => ({
         role: m.rol === 'usuario' ? 'user' : 'assistant',
         content: m.texto,
       }))
@@ -62,19 +136,17 @@ export default function ChatPage() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ mensaje: texto, historial }),
+          body: JSON.stringify({ message: texto, history, ...ctx }),
         }
       )
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        const stage  = err.stage  ? ` [${err.stage}]`  : ''
-        const detail = err.detail ? ` — ${err.detail}` : ''
-        throw new Error(`${err.error ?? `Error ${res.status}`}${stage}${detail}`)
+        throw new Error(err.error ?? `Error ${res.status}`)
       }
 
       const data = await res.json()
-      const respuesta: string = data.respuesta ?? data.message ?? JSON.stringify(data)
+      const respuesta: string = data.reply ?? data.respuesta ?? JSON.stringify(data)
       setMensajes(prev => [...prev, { rol: 'tefa', texto: respuesta }])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido')
@@ -113,7 +185,7 @@ export default function ChatPage() {
               <EmptyState
                 icon={<Sparkles size={28} />}
                 title="Empezá tu conversación con Tefa"
-                description="Preguntale sobre tu metodología, tus últimos trades, gestión de riesgo o psicología. Está entrenada con tu data."
+                description="Preguntale sobre tu metodología, tus últimos trades, gestión de riesgo o psicología. Tiene acceso a todo tu contexto de trading."
               />
             </div>
           ) : (
@@ -152,7 +224,6 @@ export default function ChatPage() {
           }}
         >
           <textarea
-            ref={textareaRef}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
