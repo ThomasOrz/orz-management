@@ -136,7 +136,8 @@ export default function ChatPage() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ message: texto, history, ...ctx }),
+          // `message`/`history` → new EF (Iter 6); `mensaje`/`historial` → old EF still deployed
+          body: JSON.stringify({ message: texto, history, mensaje: texto, historial: history, ...ctx }),
         }
       )
 
