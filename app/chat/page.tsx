@@ -129,7 +129,7 @@ export default function ChatPage() {
       }))
 
       const res = await fetch(
-        'https://ymosnytxyveedpsubdke.supabase.co/functions/v1/chat-mentor',
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/chat-mentor`,
         {
           method: 'POST',
           headers: {

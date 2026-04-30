@@ -114,7 +114,7 @@ const MIN_RAZON = 20
 const MIN_PLAN = 15
 const MIN_LECCION = 20
 const MARKET_SNAPSHOT_URL =
-  'https://ymosnytxyveedpsubdke.supabase.co/functions/v1/market-snapshot'
+  `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/market-snapshot`
 
 // ── Lógica de matriz sesgo ────────────────────────────────────────────────
 

@@ -102,7 +102,7 @@ export default function EvaluacionClient({
       if (!session) throw new Error('Sin sesión activa')
 
       const res = await fetch(
-        'https://ymosnytxyveedpsubdke.supabase.co/functions/v1/weekly-insights',
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/weekly-insights`,
         {
           method: 'POST',
           headers: {
