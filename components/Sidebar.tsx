@@ -1,15 +1,15 @@
 'use client'
 
 // ─────────────────────────────────────────────────────────────────────────
-// components/Sidebar.tsx — Navegación lateral con iconos Lucide
+// components/Sidebar.tsx — Iter 7: 4 módulos core + admin
 // ─────────────────────────────────────────────────────────────────────────
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  Home, FileText, CheckSquare, Zap, BarChart3, MessageCircle, LogOut,
-  Users, FlaskConical, Wallet, TrendingUp,
+  Home, MessageCircle, LogOut,
+  Users, Wallet, BarChart3, BookOpen, Target,
   type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -21,18 +21,18 @@ interface NavLink {
   adminOnly?: boolean
 }
 
-const navLinks: NavLink[] = [
-  { href: '/',                label: 'Dashboard',       icon: Home },
-  { href: '/briefing',        label: 'Briefing Diario', icon: FileText },
-  { href: '/validar',         label: 'Validar Setup',   icon: CheckSquare },
-  { href: '/sesion',          label: 'Sesión',          icon: Zap },
-  { href: '/evaluacion',      label: 'Evaluación',      icon: BarChart3 },
-  { href: '/laboratorio',     label: 'Laboratorio',     icon: FlaskConical },
-  { href: '/edge',            label: 'Motor de Ventaja', icon: TrendingUp },
-  { href: '/capital',         label: 'Capital',         icon: Wallet },
-  { href: '/chat',            label: 'Chat Mentor',     icon: MessageCircle },
-  { href: '/admin/usuarios',  label: 'Usuarios',        icon: Users, adminOnly: true },
-  { href: '/admin/capital',   label: 'Admin Capital',   icon: Wallet, adminOnly: true },
+const NAV_TOP: NavLink[] = [
+  { href: '/',           label: 'Dashboard',          icon: Home },
+  { href: '/sesiones',   label: 'Sesiones / Journal', icon: BookOpen },
+  { href: '/estrategias',label: 'Estrategias / Lab',  icon: Target },
+  { href: '/chat',       label: 'Chat Mentor (Tefa)', icon: MessageCircle },
+  { href: '/evaluacion', label: 'Evaluación',          icon: BarChart3 },
+]
+
+const NAV_BOTTOM: NavLink[] = [
+  { href: '/capital',         label: 'Capital',       icon: Wallet },
+  { href: '/admin/usuarios',  label: 'Usuarios',      icon: Users,  adminOnly: true },
+  { href: '/admin/capital',   label: 'Admin Capital', icon: Wallet, adminOnly: true },
 ]
 
 export default function Sidebar() {
@@ -68,7 +68,25 @@ export default function Sidebar() {
     router.refresh()
   }
 
-  const visibleLinks = navLinks.filter((l) => !l.adminOnly || role === 'admin')
+  function isActive(href: string) {
+    return href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`)
+  }
+
+  function renderLinks(links: NavLink[]) {
+    return links
+      .filter((l) => !l.adminOnly || role === 'admin')
+      .map(({ href, label, icon: Icon }) => (
+        <Link
+          key={href}
+          href={href}
+          className={`nav-item${isActive(href) ? ' active' : ''}`}
+          aria-current={isActive(href) ? 'page' : undefined}
+        >
+          <Icon size={16} strokeWidth={1.8} />
+          {label}
+        </Link>
+      ))
+  }
 
   return (
     <aside className="sidebar" aria-label="Navegación principal">
@@ -77,24 +95,22 @@ export default function Sidebar() {
         <div className="sidebar-logo-sub">Sistema de Trading</div>
       </div>
 
-      <nav className="sidebar-nav">
-        {visibleLinks.map(({ href, label, icon: Icon }) => {
-          const isActive =
-            href === '/'
-              ? pathname === '/'
-              : pathname === href || pathname.startsWith(`${href}/`)
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`nav-item${isActive ? ' active' : ''}`}
-              aria-current={isActive ? 'page' : undefined}
-            >
-              <Icon size={16} strokeWidth={1.8} />
-              {label}
-            </Link>
-          )
-        })}
+      <nav className="sidebar-nav" style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+        {/* Módulos principales */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {renderLinks(NAV_TOP)}
+        </div>
+
+        {/* Separador */}
+        <div style={{
+          margin: '12px 12px',
+          borderTop: '1px solid var(--border-subtle)',
+        }} />
+
+        {/* Capital + Admin */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {renderLinks(NAV_BOTTOM)}
+        </div>
       </nav>
 
       <div className="sidebar-footer">

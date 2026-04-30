@@ -1,53 +1,126 @@
 'use client'
 
-// ─────────────────────────────────────────────────────────────────────────
-// app/DashboardClient.tsx — Dashboard Híbrido ORZ (Iter 3)
-// ─────────────────────────────────────────────────────────────────────────
-// FILA 1 · 4 KpiCards compactos (Bloomberg)
-// FILA 2 · StatCardLarge equity (2/3) + EdgeCallout (1/3)
-// FILA 3 · ActivityHeatmap full
-// FILA 4 · Insights de Tefa (3 cards limpias)
-// ─────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// app/DashboardClient.tsx — Dashboard v2 (Iter 7) — Estilo TradeZella
+// ─────────────────────────────────────────────────────────────────────────────
 
 import Link from 'next/link'
-import {
-  Activity, Lock, Sparkles, AlertTriangle, CheckCircle2, TrendingUp, BarChart3,
-} from 'lucide-react'
-import {
-  statsByTrigger, statsBySession, statsByEmotion, statsByZoneConfluence,
-  detectDangerousPatterns,
-} from '@/lib/analytics'
-import type { Trade, TraderStats, DangerAlert } from '@/types/trading'
-import { EmptyState } from '@/components/ui/EmptyState'
+import { Plus } from 'lucide-react'
+import type { Trade, TraderStats } from '@/types/trading'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
-import { KpiCard } from '@/components/ui/KpiCard'
-import { StatCardLarge } from '@/components/ui/StatCardLarge'
-import { ActivityHeatmap, type HeatmapDay } from '@/components/ui/ActivityHeatmap'
-import { EdgeCallout } from '@/components/ui/EdgeCallout'
-
-const MIN_TRADES_FOR_AI = 10
+import { Card } from '@/components/ui/Card'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { MetricCard } from '@/components/dashboard/MetricCard'
+import { ORZScore } from '@/components/dashboard/ORZScore'
+import { DailyCumulativePnL } from '@/components/dashboard/DailyCumulativePnL'
+import { ProgressTracker } from '@/components/dashboard/ProgressTracker'
+import { ProfitCalendar } from '@/components/dashboard/ProfitCalendar'
+import { DrawdownChart } from '@/components/dashboard/DrawdownChart'
+import { TradeTimeScatter } from '@/components/dashboard/TradeTimeScatter'
 
 interface Props {
   stats: TraderStats | null
   trades: Trade[]
-  briefing: {
-    condicion?: string | null
-    sesgo_nas100?: string | null
-    sesgo_xauusd?: string | null
-    narrativa?: string | null
-    plan_accion?: unknown
-    fecha?: string | null
-  } | null
-  disciplineToday: { [k: string]: unknown } | null
-  userEmail: string
+  briefing?: unknown
+  disciplineToday?: unknown
+  userEmail?: string
 }
 
-export default function DashboardClient({ stats, trades }: Props) {
-  const cerrados = trades.filter((t) => t.resultado !== null && t.r_obtenido !== null)
-  const totalClosed = cerrados.length
-  const alerts = detectDangerousPatterns(trades)
+// ─── Data derivation ────────────────────────────────────────────────────────
+
+type ClosedTrade = Trade & { resultado: NonNullable<Trade['resultado']>; r_obtenido: number }
+
+function deriveMetrics(trades: Trade[]) {
+  const closed = trades.filter(
+    (t): t is ClosedTrade => t.resultado !== null && t.r_obtenido !== null
+  )
+  const n = closed.length
+  if (n === 0) return null
+
+  const wins   = closed.filter(t => t.resultado === 'Win').length
+  const losses = closed.filter(t => t.resultado === 'Loss').length
+  const winRate = (wins / n) * 100
+
+  const totalR  = closed.reduce((s, t) => s + t.r_obtenido, 0)
+
+  const winRs  = closed.filter(t => t.r_obtenido > 0).map(t => t.r_obtenido)
+  const lossRs = closed.filter(t => t.r_obtenido < 0).map(t => t.r_obtenido)
+  const avgWin  = winRs.length  > 0 ? winRs.reduce((s, x) => s + x, 0)  / winRs.length  : 0
+  const avgLoss = lossRs.length > 0 ? lossRs.reduce((s, x) => s + x, 0) / lossRs.length : 0
+  const grossProfit = winRs.reduce((s, x) => s + x, 0)
+  const grossLoss   = Math.abs(lossRs.reduce((s, x) => s + x, 0))
+  const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : 0
+  const avgWinLossRatio = Math.abs(avgLoss) > 0 ? avgWin / Math.abs(avgLoss) : 0
+
+  // Day win rate
+  const byDay = new Map<string, number>()
+  for (const t of closed) {
+    const d = t.created_at.slice(0, 10)
+    byDay.set(d, (byDay.get(d) ?? 0) + t.r_obtenido)
+  }
+  const dayWins    = Array.from(byDay.values()).filter(v => v > 0).length
+  const dayWinRate = byDay.size > 0 ? (dayWins / byDay.size) * 100 : 0
+
+  // Adherencia
+  const withRules  = closed.filter(t => t.siguio_reglas !== null)
+  const adherencia = withRules.length > 0
+    ? (withRules.filter(t => t.siguio_reglas).length / withRules.length) * 100 : 0
+
+  // Cumulative PnL by day
+  const sortedByDay = Array.from(byDay.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+  let cumR = 0
+  const cumPnlData = sortedByDay.map(([date, r]) => {
+    cumR += r
+    return { date: date.slice(5).replace('-', '/'), cumPnl: parseFloat(cumR.toFixed(2)) }
+  })
+
+  // Drawdown
+  let peak = 0, runningR = 0
+  const ddData = sortedByDay.map(([date, r]) => {
+    runningR += r
+    if (runningR > peak) peak = runningR
+    const dd = peak > 0 ? ((peak - runningR) / peak) * 100 * -1 : 0
+    return { date: date.slice(5).replace('-', '/'), dd: parseFloat(dd.toFixed(2)) }
+  })
+  const maxDD = Math.abs(Math.min(0, ...ddData.map(d => d.dd)))
+
+  // Heatmap
+  const tradesByDay = new Map<string, number>()
+  for (const t of closed) {
+    const d = t.created_at.slice(0, 10)
+    tradesByDay.set(d, (tradesByDay.get(d) ?? 0) + 1)
+  }
+  const heatmap = Array.from(byDay.entries()).map(([date, pnl]) => ({
+    date, pnl: parseFloat(pnl.toFixed(2)), count: tradesByDay.get(date) ?? 0,
+  }))
+
+  // Calendar (current month)
+  const now = new Date()
+  const calendarData = heatmap
+    .filter(d => {
+      const dm = new Date(d.date)
+      return dm.getFullYear() === now.getFullYear() && dm.getMonth() === now.getMonth()
+    })
+    .map(d => ({ date: d.date, pnl: d.pnl, trades: d.count }))
+
+  // Scatter (hour of day)
+  const scatterData = closed.map(t => {
+    const dt = new Date(t.created_at)
+    return { hour: dt.getHours() + dt.getMinutes() / 60, r: t.r_obtenido, label: t.activo }
+  })
+
+  return {
+    n, wins, losses, winRate, totalR, avgWin, avgLoss, profitFactor,
+    avgWinLossRatio, dayWinRate, adherencia, maxDD,
+    cumPnlData, ddData, heatmap, calendarData, scatterData,
+  }
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export default function DashboardClient({ trades }: Props) {
+  const m = deriveMetrics(trades)
 
   const hoy = new Date().toLocaleDateString('es-ES', {
     weekday: 'long', day: 'numeric', month: 'long',
@@ -57,410 +130,104 @@ export default function DashboardClient({ stats, trades }: Props) {
     <div style={{ maxWidth: 1400, margin: '0 auto' }}>
       <PageHeader
         title="Dashboard"
-        subtitle={
-          <span style={{ textTransform: 'capitalize' }}>
-            {hoy} · {totalClosed} trades cerrados en tu histórico
-          </span>
-        }
+        subtitle={<span style={{ textTransform: 'capitalize' }}>{hoy}</span>}
         action={
-          <Link href="/sesion">
-            <Button variant="primary" size="sm" icon={<Activity size={14} />}>
-              Nueva sesión
+          <Link href="/sesiones">
+            <Button variant="primary" size="sm" icon={<Plus size={14} />}>
+              Registrar trade
             </Button>
           </Link>
         }
       />
 
-      {totalClosed === 0 ? (
+      {!m ? (
         <EmptyState
-          icon={<BarChart3 size={28} />}
+          icon={<span style={{ fontSize: 32 }}>📊</span>}
           title="Aún no hay trades cerrados"
           description={
             <>
               Registra tu primer trade en{' '}
-              <Link href="/sesion" style={{ color: 'var(--accent-primary)' }}>Sesión</Link>{' '}
-              o valida un setup en{' '}
-              <Link href="/validar" style={{ color: 'var(--accent-primary)' }}>Validar</Link> para empezar.
+              <Link href="/sesiones" style={{ color: 'var(--accent-primary)' }}>
+                Sesiones / Journal
+              </Link>{' '}
+              para ver tu dashboard.
             </>
           }
-          action={
-            <Link href="/sesion">
-              <Button variant="primary">Ir a sesión</Button>
-            </Link>
-          }
-          size="lg"
         />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-          <Fila1Kpis trades={trades} stats={stats} />
-          <Fila2EquityEdge trades={trades} cerrados={cerrados} />
-          <Fila3Heatmap cerrados={cerrados} />
-          <Fila4Insights trades={trades} alerts={alerts} enoughData={totalClosed >= MIN_TRADES_FOR_AI} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* ── 5 MetricCards ──────────────────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 10 }}>
+            <MetricCard
+              label="Net P&L"
+              value={`${m.totalR >= 0 ? '+' : ''}${m.totalR.toFixed(2)}R`}
+              subtitle={`${m.n} trades`}
+              color={m.totalR >= 0 ? 'var(--profit)' : 'var(--loss)'}
+            />
+            <MetricCard
+              label="Trade Win %"
+              value={`${m.winRate.toFixed(1)}%`}
+              subtitle={`${m.wins}W / ${m.losses}L`}
+              gauge
+              gaugeValue={m.winRate}
+              color={m.winRate >= 55 ? 'var(--profit)' : m.winRate < 45 ? 'var(--loss)' : 'var(--neutral)'}
+            />
+            <MetricCard
+              label="Profit Factor"
+              value={m.profitFactor > 0 ? m.profitFactor.toFixed(2) : '—'}
+              subtitle={m.profitFactor >= 1.5 ? 'Bueno ✓' : m.profitFactor >= 1 ? 'Umbral' : 'Bajo'}
+              color={m.profitFactor >= 1.5 ? 'var(--profit)' : m.profitFactor >= 1 ? 'var(--neutral)' : 'var(--loss)'}
+            />
+            <MetricCard
+              label="Day Win %"
+              value={`${m.dayWinRate.toFixed(1)}%`}
+              subtitle="días ganadores"
+              gauge
+              gaugeValue={m.dayWinRate}
+              color={m.dayWinRate >= 60 ? 'var(--profit)' : m.dayWinRate < 50 ? 'var(--loss)' : 'var(--neutral)'}
+            />
+            <MetricCard
+              label="Avg Win / Loss"
+              value={m.avgWinLossRatio > 0 ? `${m.avgWinLossRatio.toFixed(2)}x` : '—'}
+              subtitle={`+${m.avgWin.toFixed(2)}R / ${m.avgLoss.toFixed(2)}R`}
+              color={m.avgWinLossRatio >= 1.5 ? 'var(--profit)' : 'var(--text-secondary)'}
+            />
+          </div>
+
+          {/* ── Fila 2: Radar + Heatmap + Cumulative PnL ──────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr 1fr', gap: 10 }}>
+            <Card>
+              <ORZScore
+                winRate={m.winRate}
+                profitFactor={m.profitFactor}
+                avgWinLoss={m.avgWinLossRatio}
+                consistency={m.dayWinRate}
+                maxDD={m.maxDD}
+                adherencia={m.adherencia}
+              />
+            </Card>
+            <Card>
+              <ProgressTracker data={m.heatmap} />
+            </Card>
+            <Card>
+              <DailyCumulativePnL data={m.cumPnlData} />
+            </Card>
+          </div>
+
+          {/* ── Profit Calendar ────────────────────────────────────────── */}
+          <Card>
+            <ProfitCalendar data={m.calendarData} />
+          </Card>
+
+          {/* ── Fila 4: Drawdown + Scatter ─────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <Card><DrawdownChart data={m.ddData} /></Card>
+            <Card><TradeTimeScatter data={m.scatterData} /></Card>
+          </div>
+
         </div>
       )}
-    </div>
-  )
-}
-
-// ─── FILA 1 · KPIs compactos ─────────────────────────────────────────────
-
-function Fila1Kpis({ trades, stats }: { trades: Trade[]; stats: TraderStats | null }) {
-  const now = Date.now()
-  const d30 = 30 * 24 * 3600 * 1000
-  const cerrados = trades.filter((t) => t.resultado !== null && t.r_obtenido !== null)
-
-  const wr = (arr: Trade[]) => {
-    const decisivos = arr.filter((t) => t.resultado === 'Win' || t.resultado === 'Loss')
-    if (!decisivos.length) return null
-    return (decisivos.filter((t) => t.resultado === 'Win').length / decisivos.length) * 100
-  }
-
-  const last30 = cerrados.filter((t) => now - new Date(t.created_at).getTime() <= d30)
-  const prev30 = cerrados.filter((t) => {
-    const diff = now - new Date(t.created_at).getTime()
-    return diff > d30 && diff <= 2 * d30
-  })
-  const wr30 = wr(last30)
-  const wrPrev = wr(prev30)
-  const wrDelta = wr30 != null && wrPrev != null ? wr30 - wrPrev : null
-
-  const pf = stats?.profit_factor ?? null
-
-  // R del mes y mes anterior
-  const mesAct = new Date().toISOString().slice(0, 7)
-  const mesPrevDate = new Date()
-  mesPrevDate.setMonth(mesPrevDate.getMonth() - 1)
-  const mesPrev = mesPrevDate.toISOString().slice(0, 7)
-  const rMes = cerrados.filter((t) => t.created_at.slice(0, 7) === mesAct).reduce((a, t) => a + (t.r_obtenido ?? 0), 0)
-  const rPrev = cerrados.filter((t) => t.created_at.slice(0, 7) === mesPrev).reduce((a, t) => a + (t.r_obtenido ?? 0), 0)
-  const rDelta = rMes - rPrev
-
-  // Drawdown actual: peor caída desde el último pico en R acumulado
-  const sortedAsc = [...cerrados].sort((a, b) => a.created_at.localeCompare(b.created_at))
-  let peak = 0
-  let acc = 0
-  let curDD = 0
-  for (const t of sortedAsc) {
-    acc += t.r_obtenido ?? 0
-    if (acc > peak) peak = acc
-    const dd = peak - acc
-    curDD = dd
-  }
-  const ddLimit = 10  // ej: máximo 10R drawdown permitido (heurístico)
-
-  return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-      gap: 'var(--space-3)',
-    }}>
-      <KpiCard
-        label="WR · 30d"
-        value={wr30 != null ? `${wr30.toFixed(1)}%` : '—'}
-        delta={wrDelta != null ? `${wrDelta >= 0 ? '+' : ''}${wrDelta.toFixed(1)}` : null}
-        trend={wrDelta == null ? 'neutral' : wrDelta >= 0 ? 'success' : 'danger'}
-      />
-      <KpiCard
-        label="Profit Factor"
-        value={pf != null ? pf.toFixed(2) : '∞'}
-        delta={pf != null ? (pf >= 1.5 ? 'sano' : 'bajo') : 'sin pérdidas'}
-        trend={pf != null && pf >= 1.5 ? 'success' : pf != null ? 'warning' : 'info'}
-      />
-      <KpiCard
-        label="R del mes"
-        value={`${rMes >= 0 ? '+' : ''}${rMes.toFixed(2)}R`}
-        delta={`${rDelta >= 0 ? '+' : ''}${rDelta.toFixed(2)} vs mes ant.`}
-        trend={rMes >= 0 ? 'success' : 'danger'}
-      />
-      <KpiCard
-        label="Drawdown actual"
-        value={`-${curDD.toFixed(2)}R`}
-        delta={`${((curDD / ddLimit) * 100).toFixed(0)}% de ${ddLimit}R`}
-        trend={curDD >= ddLimit * 0.8 ? 'danger' : curDD >= ddLimit * 0.5 ? 'warning' : 'success'}
-      />
-    </div>
-  )
-}
-
-// ─── FILA 2 · Equity Curve + EdgeCallout ─────────────────────────────────
-
-function Fila2EquityEdge({ trades, cerrados }: { trades: Trade[]; cerrados: Trade[] }) {
-  const now = Date.now()
-  const d30 = 30 * 24 * 3600 * 1000
-
-  const sorted = [...cerrados].sort((a, b) => a.created_at.localeCompare(b.created_at))
-  const last30Sorted = sorted.filter((t) => now - new Date(t.created_at).getTime() <= d30)
-
-  let acc = 0
-  const sparkData: number[] = []
-  for (const t of last30Sorted) {
-    acc += t.r_obtenido ?? 0
-    sparkData.push(parseFloat(acc.toFixed(2)))
-  }
-  const totalR30 = sparkData.length > 0 ? sparkData[sparkData.length - 1] : 0
-  const trend = totalR30 >= 0 ? 'success' : 'danger'
-
-  // Edge: best combo (zone confluence × trigger × sesion)
-  const zoneStats = statsByZoneConfluence(trades).filter((s) => s.total >= 3)
-  const triggerStats = statsByTrigger(trades).filter((s) => s.total >= 3)
-  const sessionStats = statsBySession(trades).filter((s) => s.total >= 3)
-  const emotionStats = statsByEmotion(trades).filter((s) => s.total >= 3)
-
-  const bestZone = [...zoneStats].sort((a, b) => b.win_rate - a.win_rate)[0]
-  const bestTrigger = [...triggerStats].sort((a, b) => b.win_rate - a.win_rate)[0]
-  const bestSession = [...sessionStats].sort((a, b) => b.win_rate - a.win_rate)[0]
-  const bestEmotion = [...emotionStats].sort((a, b) => b.win_rate - a.win_rate)[0]
-
-  const segments = [bestTrigger?.segment, bestSession?.segment, bestEmotion?.segment].filter(Boolean) as string[]
-  const edgeStats = bestZone ?? bestTrigger
-  const winRate = edgeStats?.win_rate ?? 0
-  const avgR = edgeStats?.avg_r ?? 0
-  const sample = edgeStats?.total ?? 0
-
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 'var(--space-5)' }}>
-      <StatCardLarge
-        label="Equity Curve · R acumulado · 30d"
-        value={`${totalR30 >= 0 ? '+' : ''}${totalR30.toFixed(2)}R`}
-        delta={`${last30Sorted.length} trades`}
-        trend={trend}
-        sparklineData={sparkData}
-        caption={
-          last30Sorted.length === 0
-            ? 'Sin trades cerrados en los últimos 30 días.'
-            : `Desde ${last30Sorted[0].created_at.slice(0, 10)} · ${last30Sorted.length} operaciones registradas`
-        }
-        rightSlot={<TabPills active="30D" />}
-      />
-      <EdgeCallout
-        segments={segments}
-        winRate={winRate}
-        avgR={avgR}
-        sampleSize={sample}
-        caption={
-          edgeStats
-            ? `Tu mejor combinación detectada · WR vs base ${winRate.toFixed(0)}%`
-            : undefined
-        }
-      />
-    </div>
-  )
-}
-
-function TabPills({ active }: { active: string }) {
-  return (
-    <div style={{ display: 'flex', gap: 4 }}>
-      {['30D', '90D', 'YTD'].map((t) => (
-        <span
-          key={t}
-          style={{
-            padding: '3px 8px',
-            borderRadius: 4,
-            fontSize: 10,
-            fontWeight: 600,
-            letterSpacing: '0.05em',
-            color: t === active ? 'var(--accent-primary)' : 'var(--text-tertiary)',
-            background: t === active ? 'var(--accent-primary-bg)' : 'transparent',
-            border: `0.5px solid ${t === active ? 'rgba(0,212,255,0.3)' : 'var(--border-subtle)'}`,
-            cursor: 'default',
-          }}
-        >
-          {t}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-// ─── FILA 3 · Heatmap ────────────────────────────────────────────────────
-
-function Fila3Heatmap({ cerrados }: { cerrados: Trade[] }) {
-  const byDate = new Map<string, { r: number; trades: number }>()
-  for (const t of cerrados) {
-    const d = t.created_at.slice(0, 10)
-    const cur = byDate.get(d) ?? { r: 0, trades: 0 }
-    cur.r += t.r_obtenido ?? 0
-    cur.trades += 1
-    byDate.set(d, cur)
-  }
-  const data: HeatmapDay[] = Array.from(byDate.entries()).map(([date, v]) => ({
-    date, r: v.r, trades: v.trades,
-  }))
-
-  return <ActivityHeatmap data={data} days={90} />
-}
-
-// ─── FILA 4 · Insights ───────────────────────────────────────────────────
-
-function Fila4Insights({
-  trades, alerts, enoughData,
-}: { trades: Trade[]; alerts: DangerAlert[]; enoughData: boolean }) {
-  if (!enoughData) {
-    return (
-      <EmptyState
-        icon={<Lock size={28} />}
-        title={`Registra ${MIN_TRADES_FOR_AI} trades para desbloquear insights de Tefa`}
-        description="Necesitamos una muestra mínima para detectar patrones confiables."
-      />
-    )
-  }
-
-  const triggers = statsByTrigger(trades).filter((s) => s.total >= 3)
-  const sessions = statsBySession(trades).filter((s) => s.total >= 3)
-  const emotions = statsByEmotion(trades).filter((s) => s.total >= 3)
-
-  const bestTrigger = [...triggers].sort((a, b) => b.win_rate - a.win_rate)[0]
-  const bestSession = [...sessions].sort((a, b) => b.win_rate - a.win_rate)[0]
-  const worstPattern = [...emotions, ...triggers, ...sessions].sort((a, b) => a.avg_r - b.avg_r)[0]
-  const topAlerts = alerts.slice(0, 3)
-
-  const sectionTitle: React.CSSProperties = {
-    fontSize: 12, fontWeight: 600, color: '#888',
-    margin: 0, display: 'flex', alignItems: 'center', gap: 8,
-  }
-
-  return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-      gap: 'var(--space-4)',
-    }}>
-      <CleanCard>
-        <div style={sectionTitle}>
-          <Sparkles size={14} style={{ color: 'var(--accent-primary)' }} />
-          Insights de Tefa
-        </div>
-        {topAlerts.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
-            {topAlerts.map((a) => <AlertItem key={a.code} alert={a} />)}
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, fontSize: 13, color: 'var(--text-secondary)' }}>
-            <CheckCircle2 size={14} style={{ color: 'var(--profit)' }} />
-            Sin patrones peligrosos detectados.
-          </div>
-        )}
-      </CleanCard>
-
-      <CleanCard>
-        <div style={sectionTitle}>
-          <TrendingUp size={14} style={{ color: 'var(--profit)' }} />
-          Tu mejor setup
-        </div>
-        {bestTrigger && bestSession ? (
-          <>
-            <div style={{
-              fontSize: 18, fontWeight: 600, color: 'var(--text-primary)',
-              marginTop: 12, lineHeight: 1.3,
-            }}>
-              {bestTrigger.segment}
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-              en sesión <b style={{ color: 'var(--text-primary)' }}>{bestSession.segment}</b>
-            </div>
-            <div style={{
-              display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-              gap: 10, marginTop: 14, paddingTop: 10,
-              borderTop: '0.5px solid var(--border-subtle)',
-            }}>
-              <MiniStat label="WR" value={`${bestTrigger.win_rate.toFixed(0)}%`} color="var(--profit)" />
-              <MiniStat label="R prom" value={`${bestTrigger.avg_r >= 0 ? '+' : ''}${bestTrigger.avg_r.toFixed(2)}`} color="var(--profit)" />
-              <MiniStat label="N" value={`${bestTrigger.total}`} />
-            </div>
-          </>
-        ) : (
-          <div style={{ marginTop: 14, fontSize: 13, color: 'var(--text-secondary)' }}>
-            Muestra insuficiente.
-          </div>
-        )}
-      </CleanCard>
-
-      <CleanCard>
-        <div style={sectionTitle}>
-          <AlertTriangle size={14} style={{ color: 'var(--loss)' }} />
-          Tu punto débil
-        </div>
-        {worstPattern && worstPattern.total >= 3 ? (
-          <>
-            <div style={{
-              fontSize: 18, fontWeight: 600, color: 'var(--loss)',
-              marginTop: 12, lineHeight: 1.3,
-            }}>
-              {worstPattern.segment}
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-              {worstPattern.total} trades · {worstPattern.wins}W / {worstPattern.losses}L
-            </div>
-            <div style={{
-              display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-              gap: 10, marginTop: 14, paddingTop: 10,
-              borderTop: '0.5px solid var(--border-subtle)',
-            }}>
-              <MiniStat label="WR" value={`${worstPattern.win_rate.toFixed(0)}%`} color="var(--loss)" />
-              <MiniStat label="R prom" value={`${worstPattern.avg_r >= 0 ? '+' : ''}${worstPattern.avg_r.toFixed(2)}`} color="var(--loss)" />
-              <MiniStat label="Total" value={`${worstPattern.total_r >= 0 ? '+' : ''}${worstPattern.total_r.toFixed(1)}R`} color={worstPattern.total_r >= 0 ? 'var(--profit)' : 'var(--loss)'} />
-            </div>
-          </>
-        ) : (
-          <div style={{ marginTop: 14, fontSize: 13, color: 'var(--text-secondary)' }}>
-            Sin patrón débil claro.
-          </div>
-        )}
-      </CleanCard>
-    </div>
-  )
-}
-
-function CleanCard({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{
-      background: 'var(--bg-surface)',
-      border: '1px solid var(--border-subtle)',
-      borderRadius: 14,
-      padding: 18,
-      minHeight: 160,
-      display: 'flex', flexDirection: 'column',
-    }}>
-      {children}
-    </div>
-  )
-}
-
-function MiniStat({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <div>
-      <div style={{
-        fontSize: 9, letterSpacing: '0.5px',
-        textTransform: 'uppercase', color: 'var(--text-tertiary)',
-        fontWeight: 600, marginBottom: 4,
-      }}>
-        {label}
-      </div>
-      <div className="tabular-num" style={{
-        fontFamily: 'var(--font-mono)',
-        fontSize: 14, fontWeight: 600, color: color ?? 'var(--text-primary)', lineHeight: 1,
-      }}>
-        {value}
-      </div>
-    </div>
-  )
-}
-
-function AlertItem({ alert }: { alert: DangerAlert }) {
-  const variant = alert.severity === 'critical' ? 'loss' : alert.severity === 'warning' ? 'neutral' : 'info'
-  const colorVar = alert.severity === 'critical' ? 'var(--loss)' : alert.severity === 'warning' ? 'var(--neutral)' : 'var(--info)'
-  return (
-    <div style={{
-      padding: '8px 10px',
-      borderRadius: 8,
-      border: `0.5px solid ${colorVar}33`,
-      background: `${colorVar}0A`,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-        <Badge variant={variant} size="sm">{alert.severity}</Badge>
-        <div style={{ fontSize: 12, fontWeight: 600, color: colorVar }}>{alert.title}</div>
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.45 }}>{alert.detail}</div>
     </div>
   )
 }
