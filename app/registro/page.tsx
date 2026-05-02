@@ -49,7 +49,12 @@ export default function RegistroPage() {
       .eq('code', trimmed)
       .maybeSingle()
 
-    if (error || !data) {
+    if (error) {
+      console.error('[validateCode] Supabase error:', error)
+      setError(`Error al verificar el código (${error.code ?? error.message}). Intenta de nuevo.`)
+      return null
+    }
+    if (!data) {
       setError('Código no encontrado. Verifica con tu mentor.')
       return null
     }
