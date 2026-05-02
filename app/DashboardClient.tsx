@@ -53,10 +53,10 @@ function deriveMetrics(trades: Trade[]) {
   const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : 0
   const avgWinLossRatio = Math.abs(avgLoss) > 0 ? avgWin / Math.abs(avgLoss) : 0
 
-  // Day win rate
+  // Day win rate — agrupar por fecha de CIERRE, no de entrada
   const byDay = new Map<string, number>()
   for (const t of closed) {
-    const d = t.created_at.slice(0, 10)
+    const d = (t.exit_time ?? t.fecha_cierre ?? t.created_at).slice(0, 10)
     byDay.set(d, (byDay.get(d) ?? 0) + t.r_obtenido)
   }
   const dayWins    = Array.from(byDay.values()).filter(v => v > 0).length
@@ -85,10 +85,10 @@ function deriveMetrics(trades: Trade[]) {
   })
   const maxDD = Math.abs(Math.min(0, ...ddData.map(d => d.dd)))
 
-  // Heatmap
+  // Heatmap — misma fecha de cierre
   const tradesByDay = new Map<string, number>()
   for (const t of closed) {
-    const d = t.created_at.slice(0, 10)
+    const d = (t.exit_time ?? t.fecha_cierre ?? t.created_at).slice(0, 10)
     tradesByDay.set(d, (tradesByDay.get(d) ?? 0) + 1)
   }
   const heatmap = Array.from(byDay.entries()).map(([date, pnl]) => ({
@@ -104,9 +104,9 @@ function deriveMetrics(trades: Trade[]) {
     })
     .map(d => ({ date: d.date, pnl: d.pnl, trades: d.count }))
 
-  // Scatter (hour of day)
+  // Scatter (hora del cierre, no de la entrada)
   const scatterData = closed.map(t => {
-    const dt = new Date(t.created_at)
+    const dt = new Date(t.exit_time ?? t.fecha_cierre ?? t.created_at)
     return { hour: dt.getHours() + dt.getMinutes() / 60, r: t.r_obtenido, label: t.activo }
   })
 

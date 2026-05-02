@@ -1,13 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, ExternalLink } from 'lucide-react'
+import { Plus, ExternalLink, Zap } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Tabs } from '@/components/ui/Tabs'
 import { ProfitCalendar } from '@/components/dashboard/ProfitCalendar'
 import { RegistrarTradeModal } from '@/components/sesiones/RegistrarTradeModal'
+import { CerrarTradeModal } from '@/components/sesiones/CerrarTradeModal'
 import type { Trade } from '@/types/trading'
 import type { Strategy } from '@/types/strategy'
 
@@ -39,12 +40,20 @@ function getPnl(t: Trade): number | null {
   return v ?? null
 }
 function getSetup(t: Trade): string {
-  return (t as Trade & { setup?: string | null }).setup ?? t.trigger ?? '—'
+  return t.setup ?? t.trigger ?? '—'
 }
 function getEmoji(t: Trade): string {
-  const e = (t as Trade & { emotion_pre?: number | null }).emotion_pre
+  const e = t.emotion_pre
   const map: Record<number, string> = { 1: '😰', 2: '😐', 3: '🙂', 4: '😊', 5: '🔥' }
   return e ? (map[e] ?? '—') : t.emocion ?? '—'
+}
+function getExitPrice(t: Trade): string {
+  if (t.exit_price !== null && t.exit_price !== undefined) return t.exit_price.toFixed(2)
+  if (t.take_profit !== null && t.take_profit !== t.precio_entrada) return t.take_profit.toFixed(2)
+  return '—'
+}
+function getEntryPrice(t: Trade): string {
+  return (t.entry_price_v2 ?? t.precio_entrada)?.toFixed(2) ?? '—'
 }
 
 function ResultBadge({ resultado, won, pnl }: { resultado: string | null; won?: boolean | null; pnl?: number | null }) {
@@ -68,8 +77,9 @@ function ResultBadge({ resultado, won, pnl }: { resultado: string | null; won?: 
 }
 
 export default function SesionesClient({ userId, trades, strategies }: Props) {
-  const [tab, setTab] = useState<TabId>('tabla')
-  const [showModal, setShowModal] = useState(false)
+  const [tab, setTab]                 = useState<TabId>('tabla')
+  const [showModal, setShowModal]     = useState(false)
+  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null)
 
   // Calendar data from trades
   const byDay = new Map<string, { pnl: number; trades: number }>()
@@ -109,7 +119,7 @@ export default function SesionesClient({ userId, trades, strategies }: Props) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)' }}>
-                  {['Fecha', 'Símbolo', 'Setup', 'Side', 'Entry', 'Exit', 'P&L / R', 'Emoc.', 'Plan', 'Notas'].map(h => (
+                  {['Fecha', 'Símbolo', 'Setup', 'Side', 'Entry', 'Exit', 'P&L / R', 'Emoc.', 'Plan', 'Notas', ''].map(h => (
                     <th key={h} style={{
                       padding: '10px 12px', textAlign: 'left',
                       fontSize: 10, fontWeight: 600, letterSpacing: '0.08em',
@@ -128,15 +138,18 @@ export default function SesionesClient({ userId, trades, strategies }: Props) {
                   </tr>
                 )}
                 {trades.map((t, i) => {
-                  const pnl = getPnl(t)
-                  const r   = t.r_obtenido
+                  const pnl    = getPnl(t)
+                  const r      = t.r_obtenido ?? t.r_multiple
+                  const isOpen = !t.trade_cerrado
                   return (
                     <tr
                       key={t.id}
                       style={{
                         borderBottom: i < trades.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                         transition: 'background 0.1s',
+                        cursor: isOpen ? 'pointer' : 'default',
                       }}
+                      onClick={isOpen ? () => setSelectedTrade(t) : undefined}
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elevated)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                     >
@@ -161,10 +174,10 @@ export default function SesionesClient({ userId, trades, strategies }: Props) {
                         </span>
                       </td>
                       <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)' }}>
-                        {t.precio_entrada?.toFixed(2) ?? '—'}
+                        {getEntryPrice(t)}
                       </td>
                       <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)' }}>
-                        {t.take_profit !== t.precio_entrada ? t.take_profit?.toFixed(2) : '—'}
+                        {getExitPrice(t)}
                       </td>
                       <td style={{ padding: '10px 12px' }}>
                         <ResultBadge resultado={t.resultado} pnl={pnl} />
@@ -188,12 +201,37 @@ export default function SesionesClient({ userId, trades, strategies }: Props) {
                             : <span style={{ color: 'var(--text-tertiary)' }}>—</span>
                         }
                       </td>
-                      <td style={{ padding: '10px 12px', color: 'var(--text-tertiary)', maxWidth: 180 }}>
-                        {t.notas ? (
-                          <span title={t.notas}>
-                            {t.notas.slice(0, 40)}{t.notas.length > 40 ? '…' : ''}
+                      <td style={{ padding: '10px 12px', color: 'var(--text-tertiary)', maxWidth: 160 }}>
+                        {(t.notas ?? t.notes) ? (
+                          <span title={t.notas ?? t.notes ?? ''}>
+                            {(t.notas ?? t.notes ?? '').slice(0, 35)}
+                            {(t.notas ?? t.notes ?? '').length > 35 ? '…' : ''}
                           </span>
                         ) : '—'}
+                      </td>
+                      {/* Columna acción */}
+                      <td style={{ padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {isOpen ? (
+                          <button
+                            onClick={e => { e.stopPropagation(); setSelectedTrade(t) }}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                              padding: '4px 10px',
+                              background: 'rgba(0,212,255,0.08)',
+                              border: '1px solid rgba(0,212,255,0.25)',
+                              borderRadius: 'var(--radius-sm)',
+                              color: 'var(--accent-primary)',
+                              fontSize: 11, fontWeight: 700,
+                              cursor: 'pointer',
+                              transition: 'all 0.15s',
+                            }}
+                          >
+                            <Zap size={10} />
+                            Cerrar
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>✓</span>
+                        )}
                       </td>
                     </tr>
                   )
@@ -222,6 +260,13 @@ export default function SesionesClient({ userId, trades, strategies }: Props) {
           userId={userId}
           strategies={strategies}
           onClose={() => setShowModal(false)}
+        />
+      )}
+      {selectedTrade && (
+        <CerrarTradeModal
+          trade={selectedTrade}
+          userId={userId}
+          onClose={() => setSelectedTrade(null)}
         />
       )}
     </>
