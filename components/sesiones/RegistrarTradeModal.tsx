@@ -41,6 +41,7 @@ export function RegistrarTradeModal({ userId, strategies, onClose }: Props) {
   const [symbolCustom,setSymbolCustom]= useState('')
   const [side,        setSide]        = useState<'Long' | 'Short'>('Long')
   const [entryPrice,  setEntryPrice]  = useState('')
+  const [stopLoss,    setStopLoss]    = useState('')
   const [exitPrice,   setExitPrice]   = useState('')
   const [size,        setSize]        = useState('')
   const [entryTime,   setEntryTime]   = useState(localISO)
@@ -62,6 +63,7 @@ export function RegistrarTradeModal({ userId, strategies, onClose }: Props) {
     try {
       const finalSymbol = symbol === 'Otro' ? symbolCustom : symbol
       const entryP = parseFloat(entryPrice)
+      const slP    = stopLoss ? parseFloat(stopLoss) : null
       const exitP  = exitPrice ? parseFloat(exitPrice) : null
       const sz     = size ? parseFloat(size) : null
 
@@ -73,8 +75,13 @@ export function RegistrarTradeModal({ userId, strategies, onClose }: Props) {
 
       if (exitP !== null && sz !== null) {
         const diff = side === 'Long' ? exitP - entryP : entryP - exitP
-        pnlNet = diff * sz
+        pnlNet = parseFloat((diff * sz).toFixed(2))
         won = pnlNet > 0
+        // R múltiple a partir del stop loss real
+        if (slP !== null && Math.abs(entryP - slP) > 0) {
+          const riskUsd = Math.abs(entryP - slP) * sz
+          rMultiple = parseFloat((pnlNet / riskUsd).toFixed(2))
+        }
       }
 
       if (exitTime && entryTime) {
@@ -125,7 +132,7 @@ export function RegistrarTradeModal({ userId, strategies, onClose }: Props) {
         tipo_vela:     'V85',
         trigger:       setup as 'T1 (V85+V50)' | 'T2 (V85)' | 'T3 (V85+EMAs)' | 'Acumulación',
         precio_entrada: entryP,
-        stop_loss:     entryP,   // placeholder
+        stop_loss:     slP ?? entryP,   // real SL si fue ingresado, placeholder si no
         take_profit:   exitP ?? entryP,
         resultado:     won === true ? 'Win' : won === false ? 'Loss' : null,
         r_obtenido:    rMultiple,
@@ -199,17 +206,22 @@ export function RegistrarTradeModal({ userId, strategies, onClose }: Props) {
             </div>
           </div>
 
-          {/* Entry / Exit price */}
-          <div style={rowStyle}>
+          {/* Entry / Stop Loss / Exit price */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
             <div>
               <label style={labelStyle}>Entry Price *</label>
               <Input type="number" step="any" value={entryPrice} onChange={e => setEntryPrice(e.target.value)}
-                placeholder="1920.50" required />
+                placeholder="2345.00" required />
+            </div>
+            <div>
+              <label style={labelStyle}>Stop Loss</label>
+              <Input type="number" step="any" value={stopLoss} onChange={e => setStopLoss(e.target.value)}
+                placeholder="2338.00" />
             </div>
             <div>
               <label style={labelStyle}>Exit Price</label>
               <Input type="number" step="any" value={exitPrice} onChange={e => setExitPrice(e.target.value)}
-                placeholder="1935.00 (opcional)" />
+                placeholder="2360.00" />
             </div>
           </div>
 

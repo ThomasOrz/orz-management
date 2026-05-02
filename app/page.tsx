@@ -48,7 +48,12 @@ export default async function DashboardPage() {
   ])
 
   const stats: TraderStats | null = (statsRes.data ?? null) as TraderStats | null
-  const trades: Trade[] = (tradesRes.data ?? []) as Trade[]
+  // Normalizar r_obtenido: usar r_multiple (v2) como fallback para trades
+  // cerrados via el nuevo modal que siempre escribe ambas columnas
+  const trades: Trade[] = ((tradesRes.data ?? []) as Trade[]).map(t => ({
+    ...t,
+    r_obtenido: t.r_obtenido ?? t.r_multiple ?? null,
+  }))
   const briefing = briefingRes.data ?? null
   const disciplineToday = disciplineRes.data ?? null
 

@@ -87,6 +87,30 @@ export interface Trade {
   screenshot_url: string | null
   trade_cerrado: boolean
   fecha_cierre: string | null
+
+  // ── Schema v2 (Iter 7+) — coexisten con columnas legacy ──────────
+  symbol: string | null          // 'XAUUSD', 'NAS100', custom
+  side: string | null            // 'Long' | 'Short'
+  entry_price_v2: number | null  // alias limpio de precio_entrada
+  exit_price: number | null      // null = trade abierto
+  size: number | null            // tamaño en lotes
+  entry_time: string | null      // ISO timestamp de entrada
+  exit_time: string | null       // ISO timestamp de cierre, null = abierto
+  pnl_gross: number | null
+  pnl_net: number | null         // PnL post-comisiones en divisa cuenta
+  pnl_usd: number | null         // alias legacy
+  fees: number | null
+  confidence: number | null      // 1-5
+  hold_time_min: number | null   // duración en minutos
+  r_multiple: number | null      // alias v2 de r_obtenido
+  won: boolean | null            // true=Win false=Loss null=abierto/BE
+  strategy_id: string | null
+  broker: string | null
+  broker_account_id: string | null
+  emotion_pre: number | null     // 1-5 (emoji)
+  followed_plan: boolean | null
+  notes: string | null           // alias v2 de notas
+  setup: string | null           // alias v2 de trigger
 }
 
 // Trade cerrado: garantiza resultado y r_obtenido no-null
