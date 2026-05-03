@@ -17,6 +17,9 @@ import { ProgressTracker } from '@/components/dashboard/ProgressTracker'
 import { ProfitCalendar } from '@/components/dashboard/ProfitCalendar'
 import { DrawdownChart } from '@/components/dashboard/DrawdownChart'
 import { TradeTimeScatter } from '@/components/dashboard/TradeTimeScatter'
+import { AccountBalanceChart } from '@/components/dashboard/AccountBalanceChart'
+import { TradeDurationScatter } from '@/components/dashboard/TradeDurationScatter'
+import { RecentTradesTable } from '@/components/dashboard/RecentTradesTable'
 
 interface Props {
   dashData: DashboardData
@@ -33,7 +36,7 @@ const MONTH_NAMES = [
   'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre',
 ]
 
-export default function DashboardClient({ dashData, account }: Props) {
+export default function DashboardClient({ dashData, account, trades }: Props) {
   const now = new Date()
   const [calMonth, setCalMonth] = useState(now.getMonth())
   const [calYear,  setCalYear]  = useState(now.getFullYear())
@@ -58,13 +61,22 @@ export default function DashboardClient({ dashData, account }: Props) {
     })
     .map(d => ({ date: d.date, pnl: d.pnl, trades: d.count }))
 
+  // Build balance curve: capital_inicial + cumulative pnl_net per day
+  const balanceData = (() => {
+    if (!account || dashData.pnlNetByDay.length === 0) return []
+    let running = account.capital_inicial
+    return dashData.pnlNetByDay.map(({ date, pnlNet }) => {
+      running = parseFloat((running + pnlNet).toFixed(2))
+      return { date: date.slice(5).replace('-', '/'), balance: running }
+    })
+  })()
+
   const { n, wins, losses, winRate, totalR, profitFactor,
           avgWin, avgLoss, avgWinLossRatio, dayWinRate,
-          adherencia, maxDD, cumPnlData, ddData, activityData, scatterData } = dashData
+          adherencia, maxDD, cumPnlData, ddData, activityData,
+          scatterData, durationData } = dashData
 
-  const pnlUsd = account
-    ? (account.capital_actual - account.capital_inicial)
-    : null
+  const pnlUsd = account ? (account.capital_actual - account.capital_inicial) : null
 
   return (
     <div style={{ maxWidth: 1400, margin: '0 auto' }}>
@@ -107,7 +119,7 @@ export default function DashboardClient({ dashData, account }: Props) {
             </div>
           )}
 
-          {/* ── Row 1: Metric Cards ──────────────────────────────────── */}
+          {/* ── Row 1: Metric Cards ────────────────────────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
             <MetricCard
               label="Net P&L"
@@ -155,7 +167,7 @@ export default function DashboardClient({ dashData, account }: Props) {
             />
           </div>
 
-          {/* ── Row 2: ORZScore + Activity + Cumulative PnL ─────────── */}
+          {/* ── Row 2: ORZScore | Actividad | P&L Acumulado ──────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10 }}>
             <Card>
               <ORZScore
@@ -167,15 +179,23 @@ export default function DashboardClient({ dashData, account }: Props) {
                 adherencia={adherencia}
               />
             </Card>
+            <Card><ProgressTracker data={activityData} /></Card>
+            <Card><DailyCumulativePnL data={cumPnlData} /></Card>
+          </div>
+
+          {/* ── Row 3: DrawdownChart | AccountBalanceChart ────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 10 }}>
+            <Card><DrawdownChart data={ddData} /></Card>
             <Card>
-              <ProgressTracker data={activityData} />
-            </Card>
-            <Card>
-              <DailyCumulativePnL data={cumPnlData} />
+              <AccountBalanceChart
+                data={balanceData}
+                currency={account?.divisa === 'USD' ? '$' : (account?.divisa ?? '$')}
+                initialBalance={account?.capital_inicial}
+              />
             </Card>
           </div>
 
-          {/* ── Row 3: Profit Calendar con navegación ───────────────── */}
+          {/* ── Row 4: Calendario mensual con navegación ─────────────── */}
           <div>
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
@@ -207,11 +227,16 @@ export default function DashboardClient({ dashData, account }: Props) {
             </Card>
           </div>
 
-          {/* ── Row 4: Drawdown + Scatter ────────────────────────────── */}
+          {/* ── Row 5: TradeTimeScatter | TradeDurationScatter ────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 10 }}>
-            <Card><DrawdownChart data={ddData} /></Card>
             <Card><TradeTimeScatter data={scatterData} /></Card>
+            <Card><TradeDurationScatter data={durationData} /></Card>
           </div>
+
+          {/* ── Row 6: RecentTradesTable ──────────────────────────────── */}
+          <Card>
+            <RecentTradesTable trades={trades} limit={10} />
+          </Card>
 
         </div>
       )}
