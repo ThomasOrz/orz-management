@@ -26,6 +26,25 @@ import type {
   DangerAlert,
 } from '@/types/trading'
 
+export interface DashboardData {
+  n: number
+  wins: number
+  losses: number
+  winRate: number
+  totalR: number
+  avgWin: number
+  avgLoss: number
+  profitFactor: number
+  avgWinLossRatio: number
+  dayWinRate: number
+  adherencia: number
+  maxDD: number
+  cumPnlData: { date: string; cumPnl: number }[]
+  ddData: { date: string; dd: number }[]
+  activityData: { date: string; pnl: number; count: number }[]
+  scatterData: { hour: number; r: number; label: string }[]
+}
+
 // ─── Helpers internos ─────────────────────────────────────────────────────
 
 function isClosed(t: Trade): t is ClosedTrade {
@@ -320,4 +339,95 @@ export function detectDangerousPatterns(trades: Trade[]): DangerAlert[] {
   }
 
   return alerts
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 10. Dashboard data — computación server-side para DashboardClient
+// ─────────────────────────────────────────────────────────────────────────
+
+export function computeDashboardData(trades: Trade[]): DashboardData {
+  type DC = Trade & { resultado: NonNullable<Trade['resultado']>; r_obtenido: number }
+  const closed = trades.filter(
+    (t): t is DC => t.resultado !== null && t.r_obtenido !== null
+  )
+  const n = closed.length
+
+  if (n === 0) {
+    return {
+      n: 0, wins: 0, losses: 0, winRate: 0, totalR: 0,
+      avgWin: 0, avgLoss: 0, profitFactor: 0, avgWinLossRatio: 0,
+      dayWinRate: 0, adherencia: 0, maxDD: 0,
+      cumPnlData: [], ddData: [], activityData: [], scatterData: [],
+    }
+  }
+
+  const wins   = closed.filter(t => t.resultado === 'Win').length
+  const losses = closed.filter(t => t.resultado === 'Loss').length
+  const winRate = (wins / n) * 100
+
+  const totalR = closed.reduce((s, t) => s + t.r_obtenido, 0)
+
+  const winRs  = closed.filter(t => t.r_obtenido > 0).map(t => t.r_obtenido)
+  const lossRs = closed.filter(t => t.r_obtenido < 0).map(t => t.r_obtenido)
+  const avgWin  = winRs.length  > 0 ? winRs.reduce((s, x) => s + x, 0)  / winRs.length  : 0
+  const avgLoss = lossRs.length > 0 ? lossRs.reduce((s, x) => s + x, 0) / lossRs.length : 0
+  const grossProfit = winRs.reduce((s, x) => s + x, 0)
+  const grossLoss   = Math.abs(lossRs.reduce((s, x) => s + x, 0))
+  const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : 0
+  const avgWinLossRatio = Math.abs(avgLoss) > 0 ? avgWin / Math.abs(avgLoss) : 0
+
+  const byDay = new Map<string, number>()
+  const countByDay = new Map<string, number>()
+  for (const t of closed) {
+    const d = (t.exit_time ?? t.fecha_cierre ?? t.created_at).slice(0, 10)
+    byDay.set(d, (byDay.get(d) ?? 0) + t.r_obtenido)
+    countByDay.set(d, (countByDay.get(d) ?? 0) + 1)
+  }
+
+  const dayWins    = Array.from(byDay.values()).filter(v => v > 0).length
+  const dayWinRate = byDay.size > 0 ? (dayWins / byDay.size) * 100 : 0
+
+  const withRules  = closed.filter(t => t.siguio_reglas !== null || t.followed_plan !== null)
+  const ruleValue  = (t: DC) => t.siguio_reglas ?? t.followed_plan
+  const adherencia = withRules.length > 0
+    ? (withRules.filter(t => ruleValue(t) === true).length / withRules.length) * 100
+    : 0
+
+  const sortedByDay = Array.from(byDay.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+
+  let cumR = 0
+  const cumPnlData = sortedByDay.map(([date, r]) => {
+    cumR += r
+    return { date: date.slice(5).replace('-', '/'), cumPnl: parseFloat(cumR.toFixed(2)) }
+  })
+
+  let peak = 0, runningR = 0
+  const ddData = sortedByDay.map(([date, r]) => {
+    runningR += r
+    if (runningR > peak) peak = runningR
+    const dd = peak > 0 ? ((peak - runningR) / peak) * 100 * -1 : 0
+    return { date: date.slice(5).replace('-', '/'), dd: parseFloat(dd.toFixed(2)) }
+  })
+  const maxDD = Math.abs(Math.min(0, ...ddData.map(d => d.dd)))
+
+  const activityData = sortedByDay.map(([date, pnl]) => ({
+    date,
+    pnl: parseFloat(pnl.toFixed(2)),
+    count: countByDay.get(date) ?? 0,
+  }))
+
+  const scatterData = closed.map(t => {
+    const dt = new Date(t.exit_time ?? t.fecha_cierre ?? t.created_at)
+    return {
+      hour: dt.getUTCHours() + dt.getUTCMinutes() / 60,
+      r: t.r_obtenido,
+      label: t.symbol ?? t.activo ?? '—',
+    }
+  })
+
+  return {
+    n, wins, losses, winRate, totalR, avgWin, avgLoss,
+    profitFactor, avgWinLossRatio, dayWinRate, adherencia, maxDD,
+    cumPnlData, ddData, activityData, scatterData,
+  }
 }

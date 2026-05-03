@@ -9,7 +9,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import DashboardClient from './DashboardClient'
+import { computeDashboardData } from '@/lib/analytics'
 import type { Trade, TraderStats } from '@/types/trading'
+import type { TradingAccount } from '@/types/capital'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,7 +22,7 @@ export default async function DashboardPage() {
 
   const today = new Date().toISOString().slice(0, 10)
 
-  const [statsRes, tradesRes, briefingRes, disciplineRes] = await Promise.all([
+  const [statsRes, tradesRes, briefingRes, disciplineRes, accountRes] = await Promise.all([
     supabase
       .from('trader_stats')
       .select('*')
@@ -45,22 +47,30 @@ export default async function DashboardPage() {
       .eq('user_id', user.id)
       .eq('fecha', today)
       .maybeSingle(),
+    supabase
+      .from('trading_account')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle(),
   ])
 
   const stats: TraderStats | null = (statsRes.data ?? null) as TraderStats | null
-  // Normalizar r_obtenido: usar r_multiple (v2) como fallback para trades
-  // cerrados via el nuevo modal que siempre escribe ambas columnas
   const trades: Trade[] = ((tradesRes.data ?? []) as Trade[]).map(t => ({
     ...t,
     r_obtenido: t.r_obtenido ?? t.r_multiple ?? null,
   }))
   const briefing = briefingRes.data ?? null
   const disciplineToday = disciplineRes.data ?? null
+  const account: TradingAccount | null = (accountRes.data ?? null) as TradingAccount | null
+
+  const dashData = computeDashboardData(trades)
 
   return (
     <DashboardClient
       stats={stats}
       trades={trades}
+      dashData={dashData}
+      account={account}
       briefing={briefing}
       disciplineToday={disciplineToday}
       userEmail={user.email ?? ''}

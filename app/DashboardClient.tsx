@@ -1,12 +1,11 @@
 'use client'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// app/DashboardClient.tsx — Dashboard v2 (Iter 7) — Estilo TradeZella
-// ─────────────────────────────────────────────────────────────────────────────
-
+import { useState } from 'react'
 import Link from 'next/link'
-import { Plus } from 'lucide-react'
+import { Plus, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { Trade, TraderStats } from '@/types/trading'
+import type { TradingAccount } from '@/types/capital'
+import type { DashboardData } from '@/lib/analytics'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -20,6 +19,8 @@ import { DrawdownChart } from '@/components/dashboard/DrawdownChart'
 import { TradeTimeScatter } from '@/components/dashboard/TradeTimeScatter'
 
 interface Props {
+  dashData: DashboardData
+  account: TradingAccount | null
   stats: TraderStats | null
   trades: Trade[]
   briefing?: unknown
@@ -27,104 +28,43 @@ interface Props {
   userEmail?: string
 }
 
-// ─── Data derivation ────────────────────────────────────────────────────────
+const MONTH_NAMES = [
+  'Enero','Febrero','Marzo','Abril','Mayo','Junio',
+  'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre',
+]
 
-type ClosedTrade = Trade & { resultado: NonNullable<Trade['resultado']>; r_obtenido: number }
-
-function deriveMetrics(trades: Trade[]) {
-  const closed = trades.filter(
-    (t): t is ClosedTrade => t.resultado !== null && t.r_obtenido !== null
-  )
-  const n = closed.length
-  if (n === 0) return null
-
-  const wins   = closed.filter(t => t.resultado === 'Win').length
-  const losses = closed.filter(t => t.resultado === 'Loss').length
-  const winRate = (wins / n) * 100
-
-  const totalR  = closed.reduce((s, t) => s + t.r_obtenido, 0)
-
-  const winRs  = closed.filter(t => t.r_obtenido > 0).map(t => t.r_obtenido)
-  const lossRs = closed.filter(t => t.r_obtenido < 0).map(t => t.r_obtenido)
-  const avgWin  = winRs.length  > 0 ? winRs.reduce((s, x) => s + x, 0)  / winRs.length  : 0
-  const avgLoss = lossRs.length > 0 ? lossRs.reduce((s, x) => s + x, 0) / lossRs.length : 0
-  const grossProfit = winRs.reduce((s, x) => s + x, 0)
-  const grossLoss   = Math.abs(lossRs.reduce((s, x) => s + x, 0))
-  const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : 0
-  const avgWinLossRatio = Math.abs(avgLoss) > 0 ? avgWin / Math.abs(avgLoss) : 0
-
-  // Day win rate — agrupar por fecha de CIERRE, no de entrada
-  const byDay = new Map<string, number>()
-  for (const t of closed) {
-    const d = (t.exit_time ?? t.fecha_cierre ?? t.created_at).slice(0, 10)
-    byDay.set(d, (byDay.get(d) ?? 0) + t.r_obtenido)
-  }
-  const dayWins    = Array.from(byDay.values()).filter(v => v > 0).length
-  const dayWinRate = byDay.size > 0 ? (dayWins / byDay.size) * 100 : 0
-
-  // Adherencia
-  const withRules  = closed.filter(t => t.siguio_reglas !== null)
-  const adherencia = withRules.length > 0
-    ? (withRules.filter(t => t.siguio_reglas).length / withRules.length) * 100 : 0
-
-  // Cumulative PnL by day
-  const sortedByDay = Array.from(byDay.entries()).sort((a, b) => a[0].localeCompare(b[0]))
-  let cumR = 0
-  const cumPnlData = sortedByDay.map(([date, r]) => {
-    cumR += r
-    return { date: date.slice(5).replace('-', '/'), cumPnl: parseFloat(cumR.toFixed(2)) }
-  })
-
-  // Drawdown
-  let peak = 0, runningR = 0
-  const ddData = sortedByDay.map(([date, r]) => {
-    runningR += r
-    if (runningR > peak) peak = runningR
-    const dd = peak > 0 ? ((peak - runningR) / peak) * 100 * -1 : 0
-    return { date: date.slice(5).replace('-', '/'), dd: parseFloat(dd.toFixed(2)) }
-  })
-  const maxDD = Math.abs(Math.min(0, ...ddData.map(d => d.dd)))
-
-  // Heatmap — misma fecha de cierre
-  const tradesByDay = new Map<string, number>()
-  for (const t of closed) {
-    const d = (t.exit_time ?? t.fecha_cierre ?? t.created_at).slice(0, 10)
-    tradesByDay.set(d, (tradesByDay.get(d) ?? 0) + 1)
-  }
-  const heatmap = Array.from(byDay.entries()).map(([date, pnl]) => ({
-    date, pnl: parseFloat(pnl.toFixed(2)), count: tradesByDay.get(date) ?? 0,
-  }))
-
-  // Calendar (current month)
+export default function DashboardClient({ dashData, account }: Props) {
   const now = new Date()
-  const calendarData = heatmap
+  const [calMonth, setCalMonth] = useState(now.getMonth())
+  const [calYear,  setCalYear]  = useState(now.getFullYear())
+
+  const hoy = now.toLocaleDateString('es-ES', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  })
+
+  function prevMonth() {
+    if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1) }
+    else setCalMonth(m => m - 1)
+  }
+  function nextMonth() {
+    if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1) }
+    else setCalMonth(m => m + 1)
+  }
+
+  const calendarData = dashData.activityData
     .filter(d => {
-      const dm = new Date(d.date)
-      return dm.getFullYear() === now.getFullYear() && dm.getMonth() === now.getMonth()
+      const dm = new Date(d.date + 'T00:00:00')
+      return dm.getFullYear() === calYear && dm.getMonth() === calMonth
     })
     .map(d => ({ date: d.date, pnl: d.pnl, trades: d.count }))
 
-  // Scatter (hora del cierre, no de la entrada)
-  const scatterData = closed.map(t => {
-    const dt = new Date(t.exit_time ?? t.fecha_cierre ?? t.created_at)
-    return { hour: dt.getHours() + dt.getMinutes() / 60, r: t.r_obtenido, label: t.activo }
-  })
+  const { n, wins, losses, winRate, totalR, profitFactor,
+          avgWin, avgLoss, avgWinLossRatio, dayWinRate,
+          adherencia, maxDD, cumPnlData, ddData, activityData, scatterData } = dashData
 
-  return {
-    n, wins, losses, winRate, totalR, avgWin, avgLoss, profitFactor,
-    avgWinLossRatio, dayWinRate, adherencia, maxDD,
-    cumPnlData, ddData, heatmap, calendarData, scatterData,
-  }
-}
-
-// ─── Component ───────────────────────────────────────────────────────────────
-
-export default function DashboardClient({ trades }: Props) {
-  const m = deriveMetrics(trades)
-
-  const hoy = new Date().toLocaleDateString('es-ES', {
-    weekday: 'long', day: 'numeric', month: 'long',
-  })
+  const pnlUsd = account
+    ? (account.capital_actual - account.capital_inicial)
+    : null
 
   return (
     <div style={{ maxWidth: 1400, margin: '0 auto' }}>
@@ -140,7 +80,7 @@ export default function DashboardClient({ trades }: Props) {
         }
       />
 
-      {!m ? (
+      {n === 0 ? (
         <EmptyState
           icon={<span style={{ fontSize: 32 }}>📊</span>}
           title="Aún no hay trades cerrados"
@@ -150,80 +90,127 @@ export default function DashboardClient({ trades }: Props) {
               <Link href="/sesiones" style={{ color: 'var(--accent-primary)' }}>
                 Sesiones / Journal
               </Link>{' '}
-              para ver tu dashboard.
+              y ciérralo para ver tu dashboard.
             </>
           }
         />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          {/* ── 5 MetricCards ──────────────────────────────────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 10 }}>
+          {n < 3 && (
+            <div style={{
+              padding: '10px 16px', borderRadius: 'var(--radius-sm)', fontSize: 12,
+              background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.2)',
+              color: 'var(--text-secondary)',
+            }}>
+              Mínimo 10 trades para estadísticas fiables — llevas {n}.
+            </div>
+          )}
+
+          {/* ── Row 1: Metric Cards ──────────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
             <MetricCard
               label="Net P&L"
-              value={`${m.totalR >= 0 ? '+' : ''}${m.totalR.toFixed(2)}R`}
-              subtitle={`${m.n} trades`}
-              color={m.totalR >= 0 ? 'var(--profit)' : 'var(--loss)'}
+              value={`${totalR >= 0 ? '+' : ''}${totalR.toFixed(2)}R`}
+              subtitle={pnlUsd !== null
+                ? `${pnlUsd >= 0 ? '+' : ''}$${Math.abs(pnlUsd).toLocaleString('es-ES', { maximumFractionDigits: 0 })}`
+                : `${n} trades`}
+              color={totalR >= 0 ? 'var(--profit)' : 'var(--loss)'}
             />
             <MetricCard
               label="Trade Win %"
-              value={`${m.winRate.toFixed(1)}%`}
-              subtitle={`${m.wins}W / ${m.losses}L`}
+              value={`${winRate.toFixed(1)}%`}
+              subtitle={`${wins}W / ${losses}L`}
               gauge
-              gaugeValue={m.winRate}
-              color={m.winRate >= 55 ? 'var(--profit)' : m.winRate < 45 ? 'var(--loss)' : 'var(--neutral)'}
+              gaugeValue={winRate}
+              color={winRate >= 55 ? 'var(--profit)' : winRate < 45 ? 'var(--loss)' : 'var(--neutral)'}
             />
             <MetricCard
               label="Profit Factor"
-              value={m.profitFactor > 0 ? m.profitFactor.toFixed(2) : '—'}
-              subtitle={m.profitFactor >= 1.5 ? 'Bueno ✓' : m.profitFactor >= 1 ? 'Umbral' : 'Bajo'}
-              color={m.profitFactor >= 1.5 ? 'var(--profit)' : m.profitFactor >= 1 ? 'var(--neutral)' : 'var(--loss)'}
+              value={profitFactor > 0 ? profitFactor.toFixed(2) : '—'}
+              subtitle={profitFactor >= 1.5 ? 'Bueno ✓' : profitFactor >= 1 ? 'Umbral' : 'Bajo'}
+              color={profitFactor >= 1.5 ? 'var(--profit)' : profitFactor >= 1 ? 'var(--neutral)' : 'var(--loss)'}
             />
             <MetricCard
               label="Day Win %"
-              value={`${m.dayWinRate.toFixed(1)}%`}
+              value={`${dayWinRate.toFixed(1)}%`}
               subtitle="días ganadores"
               gauge
-              gaugeValue={m.dayWinRate}
-              color={m.dayWinRate >= 60 ? 'var(--profit)' : m.dayWinRate < 50 ? 'var(--loss)' : 'var(--neutral)'}
+              gaugeValue={dayWinRate}
+              color={dayWinRate >= 60 ? 'var(--profit)' : dayWinRate < 50 ? 'var(--loss)' : 'var(--neutral)'}
             />
             <MetricCard
               label="Avg Win / Loss"
-              value={m.avgWinLossRatio > 0 ? `${m.avgWinLossRatio.toFixed(2)}x` : '—'}
-              subtitle={`+${m.avgWin.toFixed(2)}R / ${m.avgLoss.toFixed(2)}R`}
-              color={m.avgWinLossRatio >= 1.5 ? 'var(--profit)' : 'var(--text-secondary)'}
+              value={avgWinLossRatio > 0 ? `${avgWinLossRatio.toFixed(2)}x` : '—'}
+              subtitle={`+${avgWin.toFixed(2)}R / ${avgLoss.toFixed(2)}R`}
+              color={avgWinLossRatio >= 1.5 ? 'var(--profit)' : 'var(--text-secondary)'}
+            />
+            <MetricCard
+              label="Adherencia"
+              value={`${adherencia.toFixed(0)}%`}
+              subtitle="siguió el plan"
+              gauge
+              gaugeValue={adherencia}
+              color={adherencia >= 85 ? 'var(--profit)' : adherencia >= 70 ? 'var(--neutral)' : 'var(--loss)'}
             />
           </div>
 
-          {/* ── Fila 2: Radar + Heatmap + Cumulative PnL ──────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr 1fr', gap: 10 }}>
+          {/* ── Row 2: ORZScore + Activity + Cumulative PnL ─────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 10 }}>
             <Card>
               <ORZScore
-                winRate={m.winRate}
-                profitFactor={m.profitFactor}
-                avgWinLoss={m.avgWinLossRatio}
-                consistency={m.dayWinRate}
-                maxDD={m.maxDD}
-                adherencia={m.adherencia}
+                winRate={winRate}
+                profitFactor={profitFactor}
+                avgWinLoss={avgWinLossRatio}
+                consistency={dayWinRate}
+                maxDD={maxDD}
+                adherencia={adherencia}
               />
             </Card>
             <Card>
-              <ProgressTracker data={m.heatmap} />
+              <ProgressTracker data={activityData} />
             </Card>
             <Card>
-              <DailyCumulativePnL data={m.cumPnlData} />
+              <DailyCumulativePnL data={cumPnlData} />
             </Card>
           </div>
 
-          {/* ── Profit Calendar ────────────────────────────────────────── */}
-          <Card>
-            <ProfitCalendar data={m.calendarData} />
-          </Card>
+          {/* ── Row 3: Profit Calendar con navegación ───────────────── */}
+          <div>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+              gap: 8, marginBottom: 6,
+            }}>
+              <span style={{ fontSize: 12, color: 'var(--text-tertiary)', marginRight: 'auto' }}>
+                Calendario mensual
+              </span>
+              <button onClick={prevMonth} style={{
+                background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-sm)', padding: '4px 8px', cursor: 'pointer',
+                color: 'var(--text-secondary)', display: 'flex', alignItems: 'center',
+              }}>
+                <ChevronLeft size={14} />
+              </button>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', minWidth: 130, textAlign: 'center' }}>
+                {MONTH_NAMES[calMonth]} {calYear}
+              </span>
+              <button onClick={nextMonth} style={{
+                background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-sm)', padding: '4px 8px', cursor: 'pointer',
+                color: 'var(--text-secondary)', display: 'flex', alignItems: 'center',
+              }}>
+                <ChevronRight size={14} />
+              </button>
+            </div>
+            <Card>
+              <ProfitCalendar data={calendarData} month={calMonth} year={calYear} />
+            </Card>
+          </div>
 
-          {/* ── Fila 4: Drawdown + Scatter ─────────────────────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <Card><DrawdownChart data={m.ddData} /></Card>
-            <Card><TradeTimeScatter data={m.scatterData} /></Card>
+          {/* ── Row 4: Drawdown + Scatter ────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 10 }}>
+            <Card><DrawdownChart data={ddData} /></Card>
+            <Card><TradeTimeScatter data={scatterData} /></Card>
           </div>
 
         </div>
