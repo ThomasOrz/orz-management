@@ -346,9 +346,11 @@ export function detectDangerousPatterns(trades: Trade[]): DangerAlert[] {
 // ─────────────────────────────────────────────────────────────────────────
 
 export function computeDashboardData(trades: Trade[]): DashboardData {
-  type DC = Trade & { resultado: NonNullable<Trade['resultado']>; r_obtenido: number }
+  // Solo requiere resultado != null — r_obtenido puede ser null si el trade
+  // fue cerrado sin stop loss. Los cálculos de R usan ?? 0 para esos casos.
+  type DC = Trade & { resultado: NonNullable<Trade['resultado']> }
   const closed = trades.filter(
-    (t): t is DC => t.resultado !== null && t.r_obtenido !== null
+    (t): t is DC => t.resultado !== null
   )
   const n = closed.length
 
@@ -365,10 +367,10 @@ export function computeDashboardData(trades: Trade[]): DashboardData {
   const losses = closed.filter(t => t.resultado === 'Loss').length
   const winRate = (wins / n) * 100
 
-  const totalR = closed.reduce((s, t) => s + t.r_obtenido, 0)
+  const totalR = closed.reduce((s, t) => s + (t.r_obtenido ?? 0), 0)
 
-  const winRs  = closed.filter(t => t.r_obtenido > 0).map(t => t.r_obtenido)
-  const lossRs = closed.filter(t => t.r_obtenido < 0).map(t => t.r_obtenido)
+  const winRs  = closed.filter(t => (t.r_obtenido ?? 0) > 0).map(t => t.r_obtenido as number)
+  const lossRs = closed.filter(t => (t.r_obtenido ?? 0) < 0).map(t => t.r_obtenido as number)
   const avgWin  = winRs.length  > 0 ? winRs.reduce((s, x) => s + x, 0)  / winRs.length  : 0
   const avgLoss = lossRs.length > 0 ? lossRs.reduce((s, x) => s + x, 0) / lossRs.length : 0
   const grossProfit = winRs.reduce((s, x) => s + x, 0)
@@ -380,7 +382,7 @@ export function computeDashboardData(trades: Trade[]): DashboardData {
   const countByDay = new Map<string, number>()
   for (const t of closed) {
     const d = (t.exit_time ?? t.fecha_cierre ?? t.created_at).slice(0, 10)
-    byDay.set(d, (byDay.get(d) ?? 0) + t.r_obtenido)
+    byDay.set(d, (byDay.get(d) ?? 0) + (t.r_obtenido ?? 0))
     countByDay.set(d, (countByDay.get(d) ?? 0) + 1)
   }
 
@@ -420,7 +422,7 @@ export function computeDashboardData(trades: Trade[]): DashboardData {
     const dt = new Date(t.exit_time ?? t.fecha_cierre ?? t.created_at)
     return {
       hour: dt.getUTCHours() + dt.getUTCMinutes() / 60,
-      r: t.r_obtenido,
+      r: t.r_obtenido ?? 0,
       label: t.symbol ?? t.activo ?? '—',
     }
   })
