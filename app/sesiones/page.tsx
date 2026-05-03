@@ -25,7 +25,10 @@ export default async function SesionesPage() {
       .order('created_at', { ascending: true }),
   ])
 
-  const trades     = (tradesRes.data     ?? []) as Trade[]
+  const trades     = ((tradesRes.data ?? []) as Trade[]).map(t => ({
+    ...t,
+    r_obtenido: t.r_obtenido ?? t.r_multiple ?? null,
+  }))
   const strategies = (strategiesRes.data ?? []) as Strategy[]
 
   return (

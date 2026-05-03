@@ -14,7 +14,7 @@ interface Props {
 }
 
 const SYMBOLS  = ['XAUUSD', 'NAS100', 'EURUSD', 'BTCUSD', 'Otro']
-const SETUPS   = ['T1 (V85+V50)', 'T2 (V85)', 'T3 (V85+EMAs)', 'Acumulación', 'V85', 'V50', 'Custom']
+const SETUPS   = ['T1 (V85+V50)', 'T2 (V85)', 'T3 (V85+EMAs)', 'Acumulación']
 const EMOJIS   = ['😰', '😐', '🙂', '😊', '🔥']  // 1-5
 
 const labelStyle: React.CSSProperties = {

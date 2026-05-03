@@ -85,7 +85,7 @@ export default function SesionesClient({ userId, trades, strategies }: Props) {
   const byDay = new Map<string, { pnl: number; trades: number }>()
   for (const t of trades) {
     if (t.resultado === null) continue
-    const d = t.created_at.slice(0, 10)
+    const d = (t.exit_time ?? t.fecha_cierre ?? t.created_at).slice(0, 10)
     const r = t.r_obtenido ?? 0
     const prev = byDay.get(d) ?? { pnl: 0, trades: 0 }
     byDay.set(d, { pnl: prev.pnl + r, trades: prev.trades + 1 })
