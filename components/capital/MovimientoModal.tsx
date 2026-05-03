@@ -17,9 +17,10 @@ interface Props {
   open: boolean
   onClose: () => void
   userId: string
+  accountId: string
 }
 
-export function MovimientoModal({ open, onClose, userId }: Props) {
+export function MovimientoModal({ open, onClose, userId, accountId }: Props) {
   const router = useRouter()
   const supabase = createClient()
 
@@ -55,6 +56,22 @@ export function MovimientoModal({ open, onClose, userId }: Props) {
     })
 
     if (err) { setError(err.message); setSaving(false); return }
+
+    const { data: acctData, error: fetchErr } = await supabase
+      .from('trading_accounts')
+      .select('capital_actual')
+      .eq('id', accountId)
+      .single()
+
+    if (fetchErr) { setError(fetchErr.message); setSaving(false); return }
+
+    const newCapital = parseFloat((acctData.capital_actual + montoFinal).toFixed(2))
+    const { error: updateErr } = await supabase
+      .from('trading_accounts')
+      .update({ capital_actual: newCapital })
+      .eq('id', accountId)
+
+    if (updateErr) { setError(updateErr.message); setSaving(false); return }
 
     setSaving(false)
     handleClose()

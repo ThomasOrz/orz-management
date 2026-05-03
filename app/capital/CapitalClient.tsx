@@ -123,7 +123,7 @@ export default function CapitalClient({ account, movements, userId }: Props) {
       )}
 
       {/* KPIs principales */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 20 }}>
         <KpiCard
           label="Capital actual"
           value={fmt(metrics.capital_actual, account.divisa)}
@@ -267,7 +267,7 @@ export default function CapitalClient({ account, movements, userId }: Props) {
         )}
       </div>
 
-      <MovimientoModal open={modalOpen} onClose={() => setModalOpen(false)} userId={userId} />
+      <MovimientoModal open={modalOpen} onClose={() => setModalOpen(false)} userId={userId} accountId={account.id} />
     </div>
   )
 }
