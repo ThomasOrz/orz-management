@@ -43,6 +43,8 @@ export interface DashboardData {
   ddData: { date: string; dd: number }[]
   activityData: { date: string; pnl: number; count: number }[]
   scatterData: { hour: number; r: number; label: string }[]
+  durationData: { min: number; r: number; label: string }[]
+  pnlNetByDay: { date: string; pnlNet: number }[]
 }
 
 // ─── Helpers internos ─────────────────────────────────────────────────────
@@ -360,6 +362,7 @@ export function computeDashboardData(trades: Trade[]): DashboardData {
       avgWin: 0, avgLoss: 0, profitFactor: 0, avgWinLossRatio: 0,
       dayWinRate: 0, adherencia: 0, maxDD: 0,
       cumPnlData: [], ddData: [], activityData: [], scatterData: [],
+      durationData: [], pnlNetByDay: [],
     }
   }
 
@@ -427,9 +430,26 @@ export function computeDashboardData(trades: Trade[]): DashboardData {
     }
   })
 
+  const durationData = closed
+    .filter(t => t.hold_time_min !== null && t.hold_time_min > 0)
+    .map(t => ({
+      min: t.hold_time_min as number,
+      r: t.r_obtenido ?? 0,
+      label: t.symbol ?? t.activo ?? '—',
+    }))
+
+  const pnlNetByDayMap = new Map<string, number>()
+  for (const t of closed) {
+    const d = (t.exit_time ?? t.fecha_cierre ?? t.created_at).slice(0, 10)
+    pnlNetByDayMap.set(d, (pnlNetByDayMap.get(d) ?? 0) + (t.pnl_net ?? t.pnl_usd ?? 0))
+  }
+  const pnlNetByDay = Array.from(pnlNetByDayMap.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, pnlNet]) => ({ date, pnlNet: parseFloat(pnlNet.toFixed(2)) }))
+
   return {
     n, wins, losses, winRate, totalR, avgWin, avgLoss,
     profitFactor, avgWinLossRatio, dayWinRate, adherencia, maxDD,
-    cumPnlData, ddData, activityData, scatterData,
+    cumPnlData, ddData, activityData, scatterData, durationData, pnlNetByDay,
   }
 }
